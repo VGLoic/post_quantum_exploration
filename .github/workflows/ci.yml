@@ -24,26 +24,16 @@ jobs:
                 toolchain: stable
                 override: true
             - run: cargo fmt --check
-    unit-tests:
+    tests:
         runs-on: ubuntu-latest
-        name: Unit tests
+        name: Tests
         steps:
             - uses: actions/checkout@v4
             - uses: actions-rust-lang/setup-rust-toolchain@v1
               with:
                 toolchain: stable
                 override: true
-            - run: cargo test --lib
-    doc-tests:
-        runs-on: ubuntu-latest
-        name: Documentation tests
-        steps:
-            - uses: actions/checkout@v4
-            - uses: actions-rust-lang/setup-rust-toolchain@v1
-              with:
-                toolchain: stable
-                override: true
-            - run: cargo test --doc
+            - run: cargo test
     build:
         runs-on: ubuntu-latest
         name: Build
