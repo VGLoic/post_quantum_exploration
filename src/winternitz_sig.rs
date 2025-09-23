@@ -218,7 +218,7 @@ mod test {
         T: BitView,
     {
         let mut bits = msg.view_bits::<Lsb0>().to_bitvec();
-        let r = bits.len() / (params.log2_w as usize);
+        let r = bits.len() % (params.log2_w as usize);
         if r != 0 {
             bits.resize(bits.len() + (params.log2_w as usize) - r, false);
         }
