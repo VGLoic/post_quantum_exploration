@@ -69,6 +69,10 @@ mod merkletree_tests {
     }
 
     impl MerkleTreeV1 {
+        fn root_hash(&self) -> &[u8; 32] {
+            &self.root.hash
+        }
+
         fn get<'a>(&'a self, selector: &[bool]) -> Result<ValueWithProof<'a>, anyhow::Error> {
             if selector.len() != self.depth.into() {
                 return Err(anyhow!(
@@ -107,31 +111,6 @@ mod merkletree_tests {
             Err(anyhow!(
                 "unexpected end of direction selector without leaves"
             ))
-        }
-
-        fn verify_proof(
-            &self,
-            value: &[u8; 32],
-            proof: &[(bool, &[u8; 32])],
-        ) -> Result<(), anyhow::Error> {
-            let mut recovered_hash = Sha3_256::digest(value);
-            // We iterate over the proof elements, if first element is true, it means the accumulator should be hashed first, else the accumulator should be hashed second
-            for (direction, sibling_hash) in proof {
-                let mut hasher = Sha3_256::new();
-                if *direction {
-                    hasher.update(recovered_hash);
-                    hasher.update(sibling_hash);
-                } else {
-                    hasher.update(sibling_hash);
-                    hasher.update(recovered_hash);
-                }
-                recovered_hash = hasher.finalize();
-            }
-            if Into::<[u8; 32]>::into(recovered_hash) != self.root.hash {
-                return Err(anyhow!("invalid proof"));
-            }
-
-            Ok(())
         }
 
         fn new(depth: u8, values: &[[u8; 32]]) -> Result<MerkleTreeV1, anyhow::Error> {
@@ -238,6 +217,31 @@ mod merkletree_tests {
         }
     }
 
+    fn verify_proof(
+        root: &[u8; 32],
+        value: &[u8; 32],
+        proof: &[(bool, &[u8; 32])],
+    ) -> Result<(), anyhow::Error> {
+        let mut recovered_hash = Sha3_256::digest(value);
+        // We iterate over the proof elements, if first element is true, it means the accumulator should be hashed first, else the accumulator should be hashed second
+        for (direction, sibling_hash) in proof {
+            let mut hasher = Sha3_256::new();
+            if *direction {
+                hasher.update(recovered_hash);
+                hasher.update(sibling_hash);
+            } else {
+                hasher.update(sibling_hash);
+                hasher.update(recovered_hash);
+            }
+            recovered_hash = hasher.finalize();
+        }
+        if &Into::<[u8; 32]>::into(recovered_hash) != root {
+            return Err(anyhow!("invalid proof"));
+        }
+
+        Ok(())
+    }
+
     #[test]
     fn test_v1() {
         let depth = 10u8;
@@ -259,7 +263,9 @@ mod merkletree_tests {
                 .collect::<Vec<bool>>();
             let selected = tree.get(&selector).unwrap();
             assert_eq!(selected.value, value);
-            if let Err(e) = tree.verify_proof(selected.value, selected.proof.as_slice()) {
+            if let Err(e) =
+                verify_proof(tree.root_hash(), selected.value, selected.proof.as_slice())
+            {
                 panic!("{e:?}");
             }
         }

@@ -45,7 +45,7 @@ mod test {
      * 1. In terms of size, given `w = 2^x`, we have `y = msg.len() / x` elements in a message, therefore:
      *  - we consume `y + checksum keys` secret keys,
      *  - the signature output is `y` element signatures (size of a hash), `y` public keys (size of a hash) and additional signatures and public keys for the checksum.
-     * Examples with x = 4, w = 2^4 = 16, and msg of length 64, 
+     * Examples with x = 4, w = 2^4 = 16, and msg of length 64,
      *  - `y = 64 / 4 = 16`
      *  - we got 16 element signatures,
      *  - checksum is at most `16 * w = 2^3 * 2^4 = 2^7` so we can decompose it in two groups of 4 bits. Therefore we have 2 additional elements to deal with,
@@ -58,7 +58,7 @@ mod test {
      *  - need to keep track of which keys have been used or not.
      * It seems the more promising solutions are using Merkle trees to store the keys, hence having a single public key (the root hash) as the way to verify that the public key belongs to the signer.
      * => By doing so, we then need to replace the previous public keys in the output by the Merkle proofs of each key we use along the signature.
-     * 
+     *
      * Including Merkle tree leads to various possibilities with their tradeoff:
      * - generate one Merkle tree for each signature,
      * - generate one Merkle tree for multiple signatures. We can not really handle gigantic Merkle trees in memory like that (practical limit is depth of 16).
@@ -72,8 +72,8 @@ mod test {
      *            - the `msg` is split in 4 chunks of 16 bits, each chunk is used to choose at each level which tree we use.
      *              E.g. first 16 bits for which tree at level 1, second 16 bits for which tree at level 2, third 16 bits for which tree at level 3, last 16 bits for which secret key at level 4.
      *        Related to the example, 64 bits signing is considered insecure, the minimum is 128 (still weak) and OK is 256. It leads to respectively MMS of depth 8 * 16 and 16 * 16 respectively. Therefore the signatures become bigger and bigger.
-     * 
-     * 
+     *
+     *
      * Related to this idea, the SPHINCS and SPHINCS+ are stateless signatures using this approach (variations as I understand).
      * A signature is between 8k and 49k bytes.
      */

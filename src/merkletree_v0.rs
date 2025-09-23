@@ -307,6 +307,13 @@ mod merkletree_tests {
             self.root.right()
         }
 
+        fn root_hash(&self) -> &[u8; 32] {
+            self.root
+                .hash
+                .as_ref()
+                .unwrap_or_else(|| unreachable!("root hash not defined"))
+        }
+
         fn get<'a>(&'a self, selector: &'a [bool]) -> Result<ValueWithProof<'a>, anyhow::Error> {
             if selector.len() != self.depth.into() {
                 return Err(anyhow!("selector not long enough"));
@@ -334,35 +341,30 @@ mod merkletree_tests {
                 })
             }
         }
+    }
 
-        fn verify_proof(
-            &self,
-            value: &[u8; 32],
-            proof: &[(bool, &[u8; 32])],
-        ) -> Result<(), anyhow::Error> {
-            let mut recovered_root_hash: [u8; 32] = Sha3_256::digest(value).into();
-            for (direction, sibling_hash) in proof {
-                let mut hasher = Sha3_256::new();
-                if *direction {
-                    hasher.update(recovered_root_hash);
-                    hasher.update(sibling_hash);
-                } else {
-                    hasher.update(sibling_hash);
-                    hasher.update(recovered_root_hash);
-                }
-                recovered_root_hash = hasher.finalize().into();
+    fn verify_proof(
+        root: &[u8; 32],
+        value: &[u8; 32],
+        proof: &[(bool, &[u8; 32])],
+    ) -> Result<(), anyhow::Error> {
+        let mut recovered_root_hash: [u8; 32] = Sha3_256::digest(value).into();
+        for (direction, sibling_hash) in proof {
+            let mut hasher = Sha3_256::new();
+            if *direction {
+                hasher.update(recovered_root_hash);
+                hasher.update(sibling_hash);
+            } else {
+                hasher.update(sibling_hash);
+                hasher.update(recovered_root_hash);
             }
-            if recovered_root_hash
-                != self
-                    .root
-                    .hash
-                    .ok_or_else(|| anyhow!("tree not initialized"))?
-            {
-                return Err(anyhow!("proof is invalid"));
-            }
-
-            Ok(())
+            recovered_root_hash = hasher.finalize().into();
         }
+        if &recovered_root_hash != root {
+            return Err(anyhow!("proof is invalid"));
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -386,7 +388,9 @@ mod merkletree_tests {
                 .collect::<Vec<bool>>();
             let selected = tree.get(&selector).unwrap();
             assert_eq!(selected.value, value);
-            if let Err(e) = tree.verify_proof(selected.value, selected.proof.as_slice()) {
+            if let Err(e) =
+                verify_proof(tree.root_hash(), selected.value, selected.proof.as_slice())
+            {
                 panic!("{e:?}");
             }
         }
