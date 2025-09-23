@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod merkletree_tests {
     use bitvec::prelude::*;
-    use std::num::TryFromIntError;
+    use std::{num::TryFromIntError};
 
     use anyhow::anyhow;
     use sha3::{Digest, Sha3_256};
@@ -9,47 +9,44 @@ mod merkletree_tests {
     // ##########################################################
     // ##########################################################
     // ##########################################################
-    // ###################### V1 ################################
+    // ###################### V2 ################################
     // ##########################################################
     // ##########################################################
     // ##########################################################
 
     /*
-     * # Construction of Merkle tree v1
-     * Inputs:
-     * - list of values,
-     * - depth
-     * Algorithm:
-     * 1. resize the list of values according to depth,
-     * 2. create the leaves,
-     * 3. creates the first level of branches with pair of leaves,
-     * 4. creates new levels of branches with pair of previously constructed branches,
-     * 5. there should be a single branch once iterated d times,
-     * 6. build the tree with it.
-     *
-     * Complexity wise:
-     * - O(N) for creating the values,
-     * - then we do `log(N)` loops of order O(log(N)),
-     * - the complexity is therefore O(N)
+     * Same than V1 but with arbitrary leaf value
      */
 
     #[derive(Clone)]
-    struct LeafV1 {
-        value: [u8; 32],
+    struct LeafV2<T>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
+        value: T,
         hash: [u8; 32],
     }
-    struct BranchV1 {
-        left: Box<NodeV1>,
-        right: Box<NodeV1>,
+    struct BranchV2<T>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
+        left: Box<NodeV2<T>>,
+        right: Box<NodeV2<T>>,
         hash: [u8; 32],
     }
 
-    enum NodeV1 {
-        Leaf(LeafV1),
-        Branch(BranchV1),
+    enum NodeV2<T>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
+        Leaf(LeafV2<T>),
+        Branch(BranchV2<T>),
     }
 
-    impl NodeV1 {
+    impl<T> NodeV2<T>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
         fn hash(&self) -> &[u8; 32] {
             match self {
                 Self::Branch(b) => &b.hash,
@@ -58,22 +55,31 @@ mod merkletree_tests {
         }
     }
 
-    struct MerkleTreeV1 {
+    struct MerkleTreeV2<T>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
         depth: u8,
-        root: BranchV1,
+        root: BranchV2<T>,
     }
 
-    struct ValueWithProof<'a> {
-        value: &'a [u8; 32],
+    struct ValueWithProof<'a, T>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
+        value: &'a T,
         proof: Vec<(bool, &'a [u8; 32])>,
     }
 
-    impl MerkleTreeV1 {
+    impl<T> MerkleTreeV2<T>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
         fn root_hash(&self) -> &[u8; 32] {
             &self.root.hash
         }
 
-        fn get<'a>(&'a self, selector: &[bool]) -> Result<ValueWithProof<'a>, anyhow::Error> {
+        fn get<'a>(&'a self, selector: &[bool]) -> Result<ValueWithProof<'a, T>, anyhow::Error> {
             if selector.len() != self.depth.into() {
                 return Err(anyhow!(
                     "invalid selector, expected of length: {}, got length {}",
@@ -81,7 +87,7 @@ mod merkletree_tests {
                     selector.len()
                 ));
             }
-            let mut current_branch: &BranchV1 = &self.root;
+            let mut current_branch: &BranchV2<T> = &self.root;
             let mut proof: Vec<(bool, &'a [u8; 32])> = vec![];
             for direction in selector {
                 // If direction is true, we register the hash of the left node in the proof and we take a look at the right node
@@ -95,10 +101,10 @@ mod merkletree_tests {
                     &current_branch.left
                 };
                 match &**next_node {
-                    NodeV1::Branch(b) => {
+                    NodeV2::Branch(b) => {
                         current_branch = b;
                     }
-                    NodeV1::Leaf(l) => {
+                    NodeV2::Leaf(l) => {
                         proof.reverse();
                         return Ok(ValueWithProof {
                             value: &l.value,
@@ -113,7 +119,7 @@ mod merkletree_tests {
             ))
         }
 
-        fn new(depth: u8, values: &[[u8; 32]]) -> Result<MerkleTreeV1, anyhow::Error> {
+        fn new(depth: u8, values: &[T]) -> Result<MerkleTreeV2<T>, anyhow::Error> {
             if depth == 0 {
                 return Err(anyhow!("depth must be more than 0"));
             }
@@ -131,20 +137,20 @@ mod merkletree_tests {
             }
 
             // We build all the leaves
-            let mut leaves: Vec<LeafV1> = values
+            let mut leaves: Vec<LeafV2<T>> = values
                 .iter()
-                .map(|v| LeafV1 {
+                .map(|v| LeafV2 {
                     value: v.to_owned(),
                     hash: Sha3_256::digest(v).into(),
                 })
                 .collect();
 
             if number_input_values < number_of_leaves_usize {
-                let zero_value = [0u8; 32];
-                let zero_hash: [u8; 32] = Sha3_256::digest(zero_value).into();
+                let zero_value = T::default();
+                let zero_hash: [u8; 32] = Sha3_256::digest(zero_value.as_ref()).into();
                 leaves.resize(
                     number_of_leaves_usize,
-                    LeafV1 {
+                    LeafV2 {
                         value: zero_value,
                         hash: zero_hash,
                     },
@@ -152,8 +158,8 @@ mod merkletree_tests {
             }
 
             // We pair leaves in order to build the branches of level `d - 1`
-            let mut branches: Vec<Box<NodeV1>> = vec![];
-            let mut pair: Vec<LeafV1> = vec![];
+            let mut branches: Vec<Box<NodeV2<T>>> = vec![];
+            let mut pair: Vec<LeafV2<T>> = vec![];
             for leaf in leaves.into_iter() {
                 pair.push(leaf);
                 if pair.len() == 2 {
@@ -162,12 +168,12 @@ mod merkletree_tests {
                     let mut hasher = Sha3_256::new();
                     hasher.update(left.hash);
                     hasher.update(right.hash);
-                    let branch = BranchV1 {
-                        left: Box::new(NodeV1::Leaf(left)),
-                        right: Box::new(NodeV1::Leaf(right)),
+                    let branch = BranchV2 {
+                        left: Box::new(NodeV2::Leaf(left)),
+                        right: Box::new(NodeV2::Leaf(right)),
                         hash: hasher.finalize().into(),
                     };
-                    let node = NodeV1::Branch(branch);
+                    let node = NodeV2::Branch(branch);
                     branches.push(Box::new(node));
                     pair.clear();
                 }
@@ -175,8 +181,8 @@ mod merkletree_tests {
 
             // We iteratively pair branches/nodes until we reach depth
             for _ in 1..depth {
-                let mut next_branches: Vec<Box<NodeV1>> = vec![];
-                let mut pair: Vec<Box<NodeV1>> = vec![];
+                let mut next_branches: Vec<Box<NodeV2<T>>> = vec![];
+                let mut pair: Vec<Box<NodeV2<T>>> = vec![];
                 for b in branches.into_iter() {
                     pair.push(b);
                     if pair.len() == 2 {
@@ -185,12 +191,12 @@ mod merkletree_tests {
                         let mut hasher = Sha3_256::new();
                         hasher.update(left.hash());
                         hasher.update(right.hash());
-                        let branch = BranchV1 {
+                        let branch = BranchV2 {
                             left,
                             right,
                             hash: hasher.finalize().into(),
                         };
-                        let node = NodeV1::Branch(branch);
+                        let node = NodeV2::Branch(branch);
                         next_branches.push(Box::new(node));
                         pair.clear();
                     }
@@ -209,20 +215,23 @@ mod merkletree_tests {
                 .pop()
                 .ok_or(anyhow!("branches should have at least one element"))?
             {
-                NodeV1::Branch(b) => b,
-                NodeV1::Leaf(_) => return Err(anyhow!("unexpected leaf at the root retrieval")),
+                NodeV2::Branch(b) => b,
+                NodeV2::Leaf(_) => return Err(anyhow!("unexpected leaf at the root retrieval")),
             };
 
-            Ok(MerkleTreeV1 { depth, root })
+            Ok(MerkleTreeV2 { depth, root })
         }
     }
 
-    fn verify_proof(
+    fn verify_proof<T>(
         root: &[u8; 32],
-        value: &[u8; 32],
+        value: &T,
         proof: &[(bool, &[u8; 32])],
-    ) -> Result<(), anyhow::Error> {
-        let mut recovered_hash = Sha3_256::digest(value);
+    ) -> Result<(), anyhow::Error>
+    where
+        T: AsRef<[u8]> + Clone + Default,
+    {
+        let mut recovered_hash = Sha3_256::digest(value.as_ref());
         // We iterate over the proof elements, if first element is true, it means the accumulator should be hashed first, else the accumulator should be hashed second
         for (direction, sibling_hash) in proof {
             let mut hasher = Sha3_256::new();
@@ -242,16 +251,33 @@ mod merkletree_tests {
         Ok(())
     }
 
+    #[derive(Clone, PartialEq, Debug)]
+    struct Stuff {
+        v: [u8; 64],
+    }
+
+    impl AsRef<[u8]> for Stuff {
+        fn as_ref(&self) -> &[u8] {
+            &self.v
+        }
+    }
+
+    impl Default for Stuff {
+        fn default() -> Self {
+            Stuff { v: [0; 64] }
+        }
+    }
+
     #[test]
-    fn test_v1() {
+    fn test_v2() {
         let depth = 10u8;
         let number_of_elements = 2usize.pow(depth.into());
         let mut values = vec![];
         for _ in 0..number_of_elements {
-            let inner_value: u8 = rand::random();
-            values.push([inner_value; 32]);
+            let inner_value: [u8; 64] = rand::random();
+            values.push(Stuff { v: inner_value });
         }
-        let tree = MerkleTreeV1::new(depth, &values).unwrap();
+        let tree = MerkleTreeV2::new(depth, &values).unwrap();
 
         for (i, value) in values.iter().enumerate() {
             let selector = i
