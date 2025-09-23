@@ -4,9 +4,18 @@
  * - Winternitz parameters: w = 16 = 2^4
  * - we use a Merkle tree of depth 8 to handle the 2^8 possible keys,
  *
- *
  * We end up with groups of 4 bits, hence y = 8 / 4 = 2 and checksum is at most 2 * 16 = 32 = 2^6
  * Therefore: 4 (2 + 2) signatures and public keys
+ *
+ *
+ * Signature scheme:
+ * It is slightly different than in the `winternitz_sig` module.
+ * Instead of adding the public keys in the signature output, we include a Merkle proof of the derived public key.
+ * The derived public key is the concatenation of all the public keys, i.e. the ones used for signing each element and checksum.
+ *
+ * In order to verify the signature, we recover the derived public key from the signature and the message and we verify the Merkle proof against the Merkle root.
+ *
+ * This is a toy example, not optimized for performance or size.
  */
 
 #[cfg(test)]
