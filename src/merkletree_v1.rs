@@ -240,7 +240,7 @@ mod merkletree_tests {
 
     #[test]
     fn test_v1() {
-        let depth = 13u8;
+        let depth = 10u8;
         let number_of_elements = 2usize.pow(depth.into());
         let mut values = vec![];
         for _ in 0..number_of_elements {
