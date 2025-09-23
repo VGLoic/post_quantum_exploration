@@ -14,8 +14,8 @@ mod merkletree_tests {
     // ##########################################################
     // ##########################################################
 
-    trait HashSha3256 {
-        fn hash_sha3_256(&self) -> [u8; 32];
+    trait Leaf: Clone + Default {
+        fn as_bytes(&self) -> &[u8];
     }
 
     /*
@@ -25,14 +25,14 @@ mod merkletree_tests {
     #[derive(Clone)]
     struct LeafV2<T>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
         value: T,
         hash: [u8; 32],
     }
     struct BranchV2<T>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
         left: Box<NodeV2<T>>,
         right: Box<NodeV2<T>>,
@@ -41,7 +41,7 @@ mod merkletree_tests {
 
     enum NodeV2<T>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
         Leaf(LeafV2<T>),
         Branch(BranchV2<T>),
@@ -49,7 +49,7 @@ mod merkletree_tests {
 
     impl<T> NodeV2<T>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
         fn hash(&self) -> &[u8; 32] {
             match self {
@@ -61,7 +61,7 @@ mod merkletree_tests {
 
     struct MerkleTreeV2<T>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
         depth: u8,
         root: BranchV2<T>,
@@ -69,7 +69,7 @@ mod merkletree_tests {
 
     struct ValueWithProof<'a, T>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
         value: &'a T,
         proof: Vec<(bool, &'a [u8; 32])>,
@@ -77,7 +77,7 @@ mod merkletree_tests {
 
     impl<T> MerkleTreeV2<T>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
         fn root_hash(&self) -> &[u8; 32] {
             &self.root.hash
@@ -145,18 +145,18 @@ mod merkletree_tests {
                 .iter()
                 .map(|v| LeafV2 {
                     value: v.to_owned(),
-                    hash: v.hash_sha3_256(),
+                    hash: Sha3_256::digest(v.as_bytes()).into(),
                 })
                 .collect();
 
             if number_input_values < number_of_leaves_usize {
                 let zero_value = T::default();
-                let zero_hash = zero_value.hash_sha3_256();
+                let zero_hash = Sha3_256::digest(zero_value.as_bytes());
                 leaves.resize(
                     number_of_leaves_usize,
                     LeafV2 {
                         value: zero_value,
-                        hash: zero_hash,
+                        hash: zero_hash.into(),
                     },
                 );
             }
@@ -233,9 +233,9 @@ mod merkletree_tests {
         proof: &[(bool, &[u8; 32])],
     ) -> Result<(), anyhow::Error>
     where
-        T: HashSha3256 + Clone + Default,
+        T: Leaf,
     {
-        let mut recovered_hash = value.hash_sha3_256();
+        let mut recovered_hash = Sha3_256::digest(value.as_bytes());
         // We iterate over the proof elements, if first element is true, it means the accumulator should be hashed first, else the accumulator should be hashed second
         for (direction, sibling_hash) in proof {
             let mut hasher = Sha3_256::new();
@@ -246,7 +246,7 @@ mod merkletree_tests {
                 hasher.update(sibling_hash);
                 hasher.update(recovered_hash);
             }
-            recovered_hash = hasher.finalize().into();
+            recovered_hash = hasher.finalize();
         }
         if &Into::<[u8; 32]>::into(recovered_hash) != root {
             return Err(anyhow!("invalid proof"));
@@ -260,9 +260,9 @@ mod merkletree_tests {
         v: [u8; 64],
     }
 
-    impl HashSha3256 for Stuff {
-        fn hash_sha3_256(&self) -> [u8; 32] {
-            Sha3_256::digest(self.v).into()
+    impl Leaf for Stuff {
+        fn as_bytes(&self) -> &[u8] {
+            &self.v
         }
     }
 
