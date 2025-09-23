@@ -70,7 +70,7 @@ mod test {
      *            - we want a tree that can sign all these messages: so we need 2^64 elements,
      *            - we use a multi Merkle tree of depth 4 (2^4 = 16 "leaves"), with Merkle tree of depth 16, hence we got a actual depth of 4 * 16 = 64, (and 2^64 leaves),
      *            - the `msg` is split in 4 chunks of 16 bits, each chunk is used to choose at each level which tree we use.
-     *              E.g. first 16 bits for which tree at level 1, second 16 bits for which tree at level 2, third 16 bits for which tree at level 3, last 16 bits for which secret key at level 4.
+     *              E.g. first 16 bits for which tree at level 1, second 16 bits for which tree at level 2, third 16 bits for which tree at level 3, last 16 bits for which pack of secret keys at level 4.
      *        Related to the example, 64 bits signing is considered insecure, the minimum is 128 (still weak) and OK is 256. It leads to respectively MMS of depth 8 * 16 and 16 * 16 respectively. Therefore the signatures become bigger and bigger.
      *
      *
