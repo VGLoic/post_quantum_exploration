@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod toy_lwe_tests {
+    use crate::primefield::*;
 
     /*
      * This is a toy example for Learning with Errors (LWE), not optimized for performance or size.
@@ -14,27 +15,31 @@ mod toy_lwe_tests {
      * The truncation step is crucial in LWE to ensure that both parties arrive at the same shared secret despite the presence of noise.
      */
 
+    // use crate::primefield::PrimeFieldElement;
+
     #[derive(Debug, PartialEq)]
     struct Vector {
-        v: [u128; 4],
+        v: [PrimeFieldElement; 4],
     }
 
     impl Vector {
-        fn new(v: [u128; 4]) -> Self {
+        fn new(v: [PrimeFieldElement; 4]) -> Self {
             Self { v }
         }
 
-        fn scalar_product(&self, b: &Vector) -> u128 {
-            self.v.iter().zip(&b.v).fold(0u128, |acc, pair| {
-                let contribution = pair.0.checked_mul(*pair.1).unwrap();
-                acc.checked_add(contribution).unwrap()
-            })
+        fn scalar_product(&self, b: &Vector) -> PrimeFieldElement {
+            self.v
+                .iter()
+                .zip(&b.v)
+                .fold(PrimeFieldElement::new(0), |acc, pair| {
+                    acc.add(&pair.0.mul(pair.1))
+                })
         }
 
         fn add(&self, b: &Vector) -> Vector {
-            let mut result = [0u128; 4];
+            let mut result = [PrimeFieldElement::new(0); 4];
             for (i, pair) in self.v.iter().zip(&b.v).enumerate() {
-                result[i] = pair.0.checked_add(*pair.1).unwrap();
+                result[i] = pair.0.add(pair.1);
             }
             Vector::new(result)
         }
@@ -47,21 +52,23 @@ mod toy_lwe_tests {
     }
 
     struct Matrix {
-        rows: [[u128; 4]; 4],
+        rows: [[PrimeFieldElement; 4]; 4],
     }
 
     impl Matrix {
-        fn new(rows: [[u128; 4]; 4]) -> Self {
+        fn new(rows: [[PrimeFieldElement; 4]; 4]) -> Self {
             Self { rows }
         }
 
         fn mult(&self, v: &Vector) -> Vector {
-            let mut result = [0u128; 4];
+            let mut result = [PrimeFieldElement::new(0); 4];
             for (i, row) in self.rows.iter().enumerate() {
-                result[i] = row.iter().zip(&v.v).fold(0u128, |acc, pair| {
-                    let contribution = pair.0.checked_mul(*pair.1).unwrap();
-                    acc.checked_add(contribution).unwrap()
-                });
+                result[i] = row
+                    .iter()
+                    .zip(&v.v)
+                    .fold(PrimeFieldElement::new(0), |acc, pair| {
+                        acc.add(&pair.0.mul(pair.1))
+                    });
             }
             Vector::new(result)
         }
@@ -77,27 +84,35 @@ mod toy_lwe_tests {
         }
     }
 
-    fn truncate(value: u128, order: u8) -> u128 {
-        let truncate_factor = 10u128.pow(order.into());
-        value / truncate_factor * truncate_factor
+    fn truncate(value: PrimeFieldElement, order: u8) -> PrimeFieldElement {
+        let truncate_factor = 10u64.pow(order.into());
+        let truncated_value = value.inner() / truncate_factor * truncate_factor;
+        PrimeFieldElement::new(truncated_value)
     }
 
     #[test]
     fn test_vector_ops() {
-        let a = Vector::new([1, 0, 0, 0]);
-        let b = Vector::new([0, 1, 0, 0]);
-        assert_eq!(a.add(&b), Vector::new([1, 1, 0, 0]));
-        assert_eq!(a.scalar_product(&b), 0);
-        let m = Matrix::new([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]);
+        let one = PrimeFieldElement::new(1);
+        let zero = PrimeFieldElement::new(0);
+        let a = Vector::new([one, zero, zero, zero]);
+        let b = Vector::new([zero, one, zero, zero]);
+        assert_eq!(a.add(&b), Vector::new([one, one, zero, zero]));
+        assert_eq!(a.scalar_product(&b), zero);
+        let m = Matrix::new([
+            [one, zero, zero, zero],
+            [zero, one, zero, zero],
+            [zero, zero, one, zero],
+            [zero, zero, zero, one],
+        ]);
         assert_eq!(m.mult(&a), a);
         assert_eq!(m.mult(&b), b);
     }
 
     fn low_amplitude_random_vector(order: u8) -> Vector {
-        let mut v = [0u128; 4];
-        let higher_limit = 10u128.pow(order.into());
+        let mut v = [PrimeFieldElement::new(0); 4];
+        let higher_limit = 10u64.pow(order.into());
         for value in v.iter_mut() {
-            *value = rand::random_range(0..higher_limit)
+            *value = PrimeFieldElement::new(rand::random_range(0..higher_limit));
         }
         Vector { v }
     }
@@ -107,13 +122,15 @@ mod toy_lwe_tests {
         let mut a = Matrix::new(
             (0..4)
                 .map(|_| {
-                    let mut row = [0u128; 4];
+                    let mut row = [PrimeFieldElement::new(0); 4];
                     for item in row.iter_mut() {
-                        *item = rand::random_range(1_000_000_000_u128..1_000_000_000_000_u128);
+                        *item = PrimeFieldElement::new(rand::random_range(
+                            1_000_000_000_u64..1_000_000_000_000_u64,
+                        ));
                     }
                     row
                 })
-                .collect::<Vec<[u128; 4]>>()
+                .collect::<Vec<[PrimeFieldElement; 4]>>()
                 .try_into()
                 .unwrap(),
         );
