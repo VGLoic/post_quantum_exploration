@@ -18,6 +18,14 @@ This is designed for educational and experimental purposes; not optimized for pr
 - **Stateless Merkle + Winternitz Signatures:**  
   Combines Merkle trees with Winternitz signatures in a stateless fashion. See [`src/merkle_stateless_winternitz_sig.rs`](src/merkle_stateless_winternitz_sig.rs).
 
+- **Learning with errors (LWE):**
+  A toy implementation of the Learning With Errors (LWE) problem. See [`src/toy_rlwe.rs`](src/toy_rlwe.rs).
+  It uses vector and matrix operations over a prime field defined in [`src/prime_field.rs`](src/prime_field.rs).
+
+- **Ring Learning with errors (RLWE):**
+  A toy implementation of the Ring Learning With Errors (RLWE) problem. See [`src/toy_rlwe.rs`](src/toy_rlwe.rs).
+  It uses polynomial operations over a prime field defined in [`src/prime_field.rs`](src/prime_field.rs) and over a ring of polynomials.
+
 ## Getting Started
 
 To build and test the project:
