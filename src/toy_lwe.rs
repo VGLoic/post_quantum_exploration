@@ -15,29 +15,29 @@ mod toy_lwe_tests {
      * The truncation step is crucial in LWE to ensure that both parties arrive at the same shared secret despite the presence of noise.
      */
 
-    // use crate::primefield::PrimeFieldElement;
+    type FieldElement = PrimeFieldElement<1_000_000_007>;
 
     #[derive(Debug, PartialEq)]
     struct Vector {
-        v: [PrimeFieldElement; 4],
+        v: [FieldElement; 4],
     }
 
     impl Vector {
-        fn new(v: [PrimeFieldElement; 4]) -> Self {
+        fn new(v: [FieldElement; 4]) -> Self {
             Self { v }
         }
 
-        fn scalar_product(&self, b: &Vector) -> PrimeFieldElement {
+        fn scalar_product(&self, b: &Vector) -> FieldElement {
             self.v
                 .iter()
                 .zip(&b.v)
-                .fold(PrimeFieldElement::new(0), |acc, pair| {
+                .fold(FieldElement::new(0), |acc, pair| {
                     acc.add(&pair.0.mul(pair.1))
                 })
         }
 
         fn add(&self, b: &Vector) -> Vector {
-            let mut result = [PrimeFieldElement::new(0); 4];
+            let mut result = [FieldElement::new(0); 4];
             for (i, pair) in self.v.iter().zip(&b.v).enumerate() {
                 result[i] = pair.0.add(pair.1);
             }
@@ -52,21 +52,21 @@ mod toy_lwe_tests {
     }
 
     struct Matrix {
-        rows: [[PrimeFieldElement; 4]; 4],
+        rows: [[FieldElement; 4]; 4],
     }
 
     impl Matrix {
-        fn new(rows: [[PrimeFieldElement; 4]; 4]) -> Self {
+        fn new(rows: [[FieldElement; 4]; 4]) -> Self {
             Self { rows }
         }
 
         fn mult(&self, v: &Vector) -> Vector {
-            let mut result = [PrimeFieldElement::new(0); 4];
+            let mut result = [FieldElement::new(0); 4];
             for (i, row) in self.rows.iter().enumerate() {
                 result[i] = row
                     .iter()
                     .zip(&v.v)
-                    .fold(PrimeFieldElement::new(0), |acc, pair| {
+                    .fold(FieldElement::new(0), |acc, pair| {
                         acc.add(&pair.0.mul(pair.1))
                     });
             }
@@ -84,16 +84,16 @@ mod toy_lwe_tests {
         }
     }
 
-    fn truncate(value: PrimeFieldElement, order: u8) -> PrimeFieldElement {
+    fn truncate(value: FieldElement, order: u8) -> FieldElement {
         let truncate_factor = 10u64.pow(order.into());
         let truncated_value = value.inner() / truncate_factor * truncate_factor;
-        PrimeFieldElement::new(truncated_value)
+        FieldElement::new(truncated_value)
     }
 
     #[test]
     fn test_vector_ops() {
-        let one = PrimeFieldElement::new(1);
-        let zero = PrimeFieldElement::new(0);
+        let one = FieldElement::new(1);
+        let zero = FieldElement::new(0);
         let a = Vector::new([one, zero, zero, zero]);
         let b = Vector::new([zero, one, zero, zero]);
         assert_eq!(a.add(&b), Vector::new([one, one, zero, zero]));
@@ -109,10 +109,10 @@ mod toy_lwe_tests {
     }
 
     fn low_amplitude_random_vector(order: u8) -> Vector {
-        let mut v = [PrimeFieldElement::new(0); 4];
+        let mut v = [FieldElement::new(0); 4];
         let higher_limit = 10u64.pow(order.into());
         for value in v.iter_mut() {
-            *value = PrimeFieldElement::new(rand::random_range(0..higher_limit));
+            *value = FieldElement::new(rand::random_range(0..higher_limit));
         }
         Vector { v }
     }
@@ -122,15 +122,15 @@ mod toy_lwe_tests {
         let mut a = Matrix::new(
             (0..4)
                 .map(|_| {
-                    let mut row = [PrimeFieldElement::new(0); 4];
+                    let mut row = [FieldElement::new(0); 4];
                     for item in row.iter_mut() {
-                        *item = PrimeFieldElement::new(rand::random_range(
+                        *item = FieldElement::new(rand::random_range(
                             1_000_000_000_u64..1_000_000_000_000_u64,
                         ));
                     }
                     row
                 })
-                .collect::<Vec<[PrimeFieldElement; 4]>>()
+                .collect::<Vec<[FieldElement; 4]>>()
                 .try_into()
                 .unwrap(),
         );

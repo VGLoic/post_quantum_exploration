@@ -13,21 +13,23 @@ mod toy_rlwe_tests {
 
     use crate::primefield::PrimeFieldElement;
 
+    type FieldElement = PrimeFieldElement<1_000_000_007>;
+
     const RING_DEGREE: usize = 7;
 
     #[derive(Debug, Clone, PartialEq)]
     struct Polynomial {
         // coefficients are in ascending degrees, i.e. a0 + a_1 * x + a_2 * x^2 + ... + a_6 * x^6
-        coefficients: [PrimeFieldElement; RING_DEGREE],
+        coefficients: [FieldElement; RING_DEGREE],
     }
 
     impl Polynomial {
-        fn new(coefficients: [PrimeFieldElement; RING_DEGREE]) -> Self {
+        fn new(coefficients: [FieldElement; RING_DEGREE]) -> Self {
             Self { coefficients }
         }
 
         fn add(&self, other: &Self) -> Self {
-            let mut result_coefficients = [PrimeFieldElement::new(0); RING_DEGREE];
+            let mut result_coefficients = [FieldElement::new(0); RING_DEGREE];
 
             for (i, pair) in self
                 .coefficients
@@ -43,7 +45,7 @@ mod toy_rlwe_tests {
 
         fn mul(&self, other: &Self) -> Self {
             // We first compute the resulting coefficients, they can be at most of degree 2 * (RING_DEGREE - 1), hence 2 * RING_DEGREE - 1 coefficients
-            let mut raw_coefficients = [PrimeFieldElement::new(0); 2 * RING_DEGREE - 1];
+            let mut raw_coefficients = [FieldElement::new(0); 2 * RING_DEGREE - 1];
             for (i, a_i) in self.coefficients.iter().enumerate() {
                 for (j, b_j) in other.coefficients.iter().enumerate() {
                     raw_coefficients[i + j] = raw_coefficients[i + j].add(&a_i.mul(b_j));
@@ -65,7 +67,7 @@ mod toy_rlwe_tests {
         }
 
         fn truncate_below(&self, degree_threshold: u8) -> Self {
-            let mut coefficients = [PrimeFieldElement::new(0); RING_DEGREE];
+            let mut coefficients = [FieldElement::new(0); RING_DEGREE];
             if degree_threshold as usize >= RING_DEGREE {
                 return Self::new(coefficients);
             }
@@ -75,12 +77,12 @@ mod toy_rlwe_tests {
         }
 
         fn random(degree: u8) -> Self {
-            let mut coefficients = [PrimeFieldElement::new(0); RING_DEGREE];
+            let mut coefficients = [FieldElement::new(0); RING_DEGREE];
             for coeff in coefficients
                 .iter_mut()
                 .take((degree as usize + 1).min(RING_DEGREE))
             {
-                *coeff = PrimeFieldElement::new(rand::random());
+                *coeff = FieldElement::new(rand::random());
             }
             Self::new(coefficients)
         }
@@ -114,9 +116,9 @@ mod toy_rlwe_tests {
             0.into(),
             0.into(),
             0.into(),
-            PrimeFieldElement::new(rand::random()),
-            PrimeFieldElement::new(rand::random()),
-            PrimeFieldElement::new(rand::random()),
+            FieldElement::new(rand::random()),
+            FieldElement::new(rand::random()),
+            FieldElement::new(rand::random()),
         ]);
 
         let s_alice = Polynomial::random(2);
@@ -135,8 +137,8 @@ mod toy_rlwe_tests {
 
     #[test]
     fn test_polynomial_addition() {
-        let a = PrimeFieldElement::new(rand::random());
-        let b = PrimeFieldElement::new(rand::random());
+        let a = FieldElement::new(rand::random());
+        let b = FieldElement::new(rand::random());
         let p = Polynomial::new([a, a, a, a, a, a, a]);
         let q = Polynomial::new([b, b, b, b, b, b, b]);
         let a_plus_b = a.add(&b);
@@ -150,9 +152,9 @@ mod toy_rlwe_tests {
 
     #[test]
     fn test_polynomial_multiplication() {
-        let a = PrimeFieldElement::new(5);
-        let b = PrimeFieldElement::new(6);
-        let zero = PrimeFieldElement::new(0);
+        let a = FieldElement::new(5);
+        let b = FieldElement::new(6);
+        let zero = FieldElement::new(0);
         let p = Polynomial::new([a, zero, zero, zero, zero, zero, zero]);
         let q = Polynomial::new([b, zero, zero, zero, zero, zero, zero]);
         assert_eq!(
@@ -171,7 +173,7 @@ mod toy_rlwe_tests {
         // (all coefficients mod p, if using a prime field)
         // For p = 1_000_000_007:
         // (P * Q)(x) ≡ 999999757 + 999999765x + 999999781x^2 + 999999813x^3 + 999999877x^4 + 1000000005x^5 + 254x^6
-        let one = PrimeFieldElement::new(1);
+        let one = FieldElement::new(1);
         let p = Polynomial::new([one, one, one, one, one, one, one]);
         let q = Polynomial::new([
             2.into(),
@@ -185,13 +187,13 @@ mod toy_rlwe_tests {
         assert_eq!(
             p.mul(&q),
             Polynomial::new([
-                PrimeFieldElement::new(999_999_757),   // -250 mod 1_000_000_007
-                PrimeFieldElement::new(999_999_765),   // -242 mod 1_000_000_007
-                PrimeFieldElement::new(999_999_781),   // -226 mod 1_000_000_007
-                PrimeFieldElement::new(999_999_813),   // -194 mod 1_000_000_007
-                PrimeFieldElement::new(999_999_877),   // -130 mod 1_000_000_007
-                PrimeFieldElement::new(1_000_000_005), // -2 mod 1_000_000_007
-                PrimeFieldElement::new(254),
+                FieldElement::new(999_999_757),   // -250 mod 1_000_000_007
+                FieldElement::new(999_999_765),   // -242 mod 1_000_000_007
+                FieldElement::new(999_999_781),   // -226 mod 1_000_000_007
+                FieldElement::new(999_999_813),   // -194 mod 1_000_000_007
+                FieldElement::new(999_999_877),   // -130 mod 1_000_000_007
+                FieldElement::new(1_000_000_005), // -2 mod 1_000_000_007
+                FieldElement::new(254),
             ])
         );
     }
