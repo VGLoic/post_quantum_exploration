@@ -27,6 +27,9 @@ mod ntru_tests {
                     }
                 })
                 .collect();
+            if terms.is_empty() {
+                return write!(f, "0");
+            }
             write!(f, "{}", terms.join(" + "))
         }
     }
@@ -125,6 +128,117 @@ mod ntru_tests {
 
             Some((Polynomial::new(quotient_coefficients), remainder))
         }
+
+        fn inv(&self, n: u64) -> Option<Polynomial> {
+            if self.is_zero() {
+                return None;
+            }
+            let self_degree = self.degree();
+
+            if self_degree == 0 {
+                let inv_coeff = modulo_inv(self.coefficients[0], n)?;
+                return Some(Polynomial::new([inv_coeff, 0, 0, 0, 0, 0, 0]));
+            }
+
+            // We can't handle `R(x) = x^RING_DEGREE + 1` in our struct so we will perform a first division step of `R` by `self` in order to remove the x^RING_DEGREE coefficient
+            // We end up with larger = R - correction * self
+            let (corrected, correction) = {
+                let self_leading_coefficient = self.coefficients[self_degree];
+                let quotient_coefficient = modulo_inv(self_leading_coefficient, n)?;
+
+                let mut to_be_subtracted_coeff = [0u64; RING_DEGREE];
+                to_be_subtracted_coeff[RING_DEGREE - self_degree] = quotient_coefficient;
+                let correction = Polynomial::new(to_be_subtracted_coeff);
+
+                // Every coefficient is multiplied by `quotient_coefficient`, increase its order of `RING_DEGREE - self_degree` and is negated, the highest one is ignored
+                let degree_increase = RING_DEGREE - self_degree;
+                let mut corrected_coefficients = [0u64; RING_DEGREE];
+                for (i, coeff) in self.coefficients.iter().enumerate() {
+                    if i + degree_increase < RING_DEGREE {
+                        corrected_coefficients[i + degree_increase] =
+                            modulo_neg(modulo_mul(*coeff, quotient_coefficient, n), n);
+                    }
+                }
+                // Coming from the ring
+                corrected_coefficients[0] += 1;
+
+                (Polynomial::new(corrected_coefficients), correction)
+            };
+
+            let (larger, mut smaller, has_been_swapped) = if corrected.degree() > self_degree {
+                (&corrected, self.clone(), false)
+            } else {
+                (self, corrected, true)
+            };
+
+            let (mut q, mut r) = larger.div(&smaller, n)?;
+
+            if r.is_zero() {
+                if smaller.degree() != 0 {
+                    return None;
+                }
+                // We have R - correction * self = b
+                // Hence the inversion is `- (1/b) * correction`
+                let factor = modulo_neg(modulo_inv(smaller.coefficients[0], n)?, n);
+                return Some(correction.mul(&Polynomial::new([factor, 0, 0, 0, 0, 0, 0]), n));
+            }
+
+            let mut quotients = vec![];
+
+            // While the remainder is not zero, we register the quotient and we re-iterate with `(smaller, r = larger % smaller)`
+            while !r.is_zero() {
+                quotients.push(q);
+                let larger = smaller;
+                smaller = r;
+                (q, r) = larger.div(&smaller, n)?;
+            }
+
+            // There is no inverse if the GCD of self with the ring polynomial is not one (or a constant)
+            if smaller.degree() != 0 {
+                return None;
+            }
+
+            // Now we can rebuild the inverse by reversing the loop above
+            // At this stage we have larger_k = smaller_k * q_k + 0
+            // Since smaller_k = r_(k-1) and smaller_k is of degree 0, we have at the last iteration):
+            // The last recorded iteration k gives us:
+            // larger_k = smaller_k * q_k * r_k
+            // Since `smaller_k = r_(k-1)` and last smaller is of degree 0, we have `r_k` of degree 0, therefore we obtain the equivalence with:
+            // 1 = (1/r_k) * (larger_k - smaller_k * q_k)
+            // Let us now define `alpha_k` and `beta_k` as 1 = alpha_k * larger_k + beta_k * smaller_k
+            // Injecting the relations `smaller_k = r_(k-1) = larger_(k-1) - q_(k-1) * smaller_(k-1)` and `larger_k = smaller_(k-1)`,
+            // We obtain the suite definitions for `alpha_k` and `beta_k`:
+            // ```
+            // alpha_(i-1) = beta_i; alpha_k = (1/r_k),
+            // beta_(i-1) = alpha_i - q_(i-1) * beta_i; beta_k = - (1/r_k) * q_k
+            // ```
+
+            let last_quotient = quotients
+                .pop()
+                .unwrap_or_else(|| unreachable!("quotient is necessarily filled with one value"));
+
+            let r_k_inv = modulo_inv(smaller.coefficients[0], n)?;
+
+            let mut alpha = Polynomial::new([r_k_inv, 0, 0, 0, 0, 0, 0]);
+            let mut beta = last_quotient.mul(&alpha.neg(n), n);
+
+            for quotient in quotients.iter().rev() {
+                let new_beta = alpha.add(&quotient.mul(&beta, n).neg(n), n);
+                alpha = beta;
+                beta = new_beta;
+            }
+
+            // We adjust with respect to the previous correction:
+            //  - If there has been a swap at the start, then larger = self and smaller = R - correction * self
+            //    So we have 1 = alpha * self + beta * (R - correction * self) <=> 1 = beta * R + (alpha - beta * correction) * self
+            //  - Otherwise larger = R - correction * self and smaller = self
+            //    So we have 1 = alpha * (R - correction * self) + beta * self <=> 1 = alpha * R + (beta - alpha * correction) * self
+            if has_been_swapped {
+                Some(alpha.add(&beta.mul(&correction, n).neg(n), n))
+            } else {
+                Some(beta.add(&alpha.mul(&correction, n).neg(n), n))
+            }
+        }
     }
 
     fn gcd(a: &Polynomial, b: &Polynomial, n: u64) -> Option<Polynomial> {
@@ -214,5 +328,36 @@ mod ntru_tests {
         let p2 = Polynomial::new([1, 1, 0, 0, 0, 0, 0]); // x + 1
         let g = gcd(&p1, &p2, 13).unwrap(); // 8
         assert_eq!(g, Polynomial::new([8, 0, 0, 0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn test_polynomial_inv() {
+        let one = Polynomial::new([1, 0, 0, 0, 0, 0, 0]);
+        for p in [
+            one.clone(),
+            Polynomial::new([8, 0, 0, 0, 0, 0, 0]), // 1
+            Polynomial::new([2, 0, 0, 0, 0, 0, 0]), // 2
+            Polynomial::new([0, 1, 0, 0, 0, 0, 0]), // x
+            Polynomial::new([0, 8, 0, 0, 0, 0, 0]), // 8x
+            Polynomial::new([0, 0, 1, 0, 0, 0, 0]), // x^2
+            Polynomial::new([1, 0, 1, 0, 0, 0, 0]), // x^2 + 1
+            Polynomial::new([1, 0, 0, 0, 1, 0, 0]), // x^4 + 1
+            Polynomial::new([1, 1, 1, 1, 1, 0, 0]), // x^4 + x^3 + x^2 + x + 1
+            Polynomial::new([0, 0, 0, 0, 0, 0, 1]), // x^6
+            Polynomial::new([1, 0, 0, 0, 0, 0, 1]), // x^6 + 1
+            Polynomial::new([1, 0, 0, 1, 0, 0, 1]), // x^6 + x^3 + 1
+            Polynomial::new([2, 5, 9, 3, 7, 0, 1]), // x^6 + 7x^4 + 3x^3 + 9x^2 + 5x + 2
+        ] {
+            let p_inv = p.inv(13).unwrap();
+            assert_eq!(p_inv.mul(&p, 13), one.clone());
+        }
+
+        for p in [
+            Polynomial::new([1, 0, 0, 1, 0, 0, 0]), // x^3 + 1
+            Polynomial::new([1, 0, 0, 0, 0, 1, 0]), // x^5 + 1
+        ] {
+            let p_inv = p.inv(13);
+            assert!(p_inv.is_none());
+        }
     }
 }
