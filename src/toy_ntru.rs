@@ -30,6 +30,29 @@ mod ntru_tests {
             Self::new(result_coefficients)
         }
 
+        fn neg(&self, n: u64) -> Self {
+            let mut coefficients = [0u64; RING_DEGREE];
+
+            for (i, coeff) in self.coefficients.iter().enumerate() {
+                coefficients[i] = modulo_neg(*coeff, n);
+            }
+
+            Self::new(coefficients)
+        }
+
+        fn is_zero(&self) -> bool {
+            !self.coefficients.iter().any(|v| *v != 0)
+        }
+
+        fn degree(&self) -> usize {
+            for i in (0..RING_DEGREE).rev() {
+                if self.coefficients[i] != 0 {
+                    return i;
+                }
+            }
+            0
+        }
+
         fn mul(&self, other: &Self, n: u64) -> Self {
             let mut raw_coefficients = [0u64; 2 * RING_DEGREE - 1];
             for (i, a_i) in self.coefficients.iter().enumerate() {
@@ -52,7 +75,44 @@ mod ntru_tests {
                 unreachable!("coefficients is necessarily of length RING_DEGREE")
             }))
         }
+
+        fn div(&self, other: &Self, n: u64) -> Option<(Self, Self)> {
+            let other_degree = other.degree();
+            let self_degree = self.degree();
+            if self.is_zero() || other.is_zero() || other_degree > self_degree {
+                return Some((Polynomial::new([0u64; RING_DEGREE]), self.clone()));
+            }
+
+            // let resulting_polynomial_degree = self.degree() - other.degree();
+
+            // x^4 + 2x^2 + 8x + 1 / x^2 = x^2 * (x^2 + 2) + 8x + 1
+            // x^4 + 2x^2 + 8x + 1 / (x^2 + 3) = x^2 * (x^2 + 3) - x^2 + 8x + 1 = x^2 * (x^2 + 3) - 1 * (x^2 + 3) + 8x + 4 = (x^2 - 1) * (x^2 + 3) + 8x + 4
+
+            // Starting from the highest degree term of self, we will subtract multiples of other until we reach the degree of other
+            // e.g. if self has degree 6 and other has degree 3, we will do the iterationss for degrees 6, 5, 4 and 3.
+
+            let mut remainder = self.clone();
+            let mut quotient_coefficients = [0u64; RING_DEGREE];
+
+            let other_leading_coefficient = other.coefficients[other_degree];
+
+            for i in (other_degree..=self_degree).rev() {
+                let other_leading_coefficient_inv = modulo_inv(other_leading_coefficient, n)?;
+                let quotient_coefficient =
+                    modulo_mul(remainder.coefficients[i], other_leading_coefficient_inv, n);
+                quotient_coefficients[i - other_degree] = quotient_coefficient;
+                let mut to_be_subtracted_coeff = [0u64; RING_DEGREE];
+                to_be_subtracted_coeff[i - other_degree] = quotient_coefficient;
+                let to_be_subtracted = Polynomial::new(to_be_subtracted_coeff).mul(other, n).neg(n);
+                remainder = remainder.add(&to_be_subtracted, n);
+            }
+
+            Some((Polynomial::new(quotient_coefficients), remainder))
+        }
     }
+
+    // fn gcd(a: &Polynomial, b: &Polynomial) -> Polynomial {
+    // }
 
     #[test]
     fn test_polynomial_addition() {
@@ -81,5 +141,21 @@ mod ntru_tests {
             254,
         ]);
         assert_eq!(p1.mul(&p2, 1_000_000_007), expected);
+    }
+
+    #[test]
+    fn test_polynomial_division() {
+        let p1 = [0, 0, 0, 1, 0, 0, 1]; // x^6 + x^3
+        let p2 = [1, 0, 0, 1, 0, 0, 0]; // x^3 + 1
+        let (quotient, remainder) = Polynomial::new(p1).div(&Polynomial::new(p2), 13).unwrap();
+        assert_eq!(quotient, Polynomial::new([0, 0, 0, 1, 0, 0, 0])); // x^3
+        assert_eq!(remainder, Polynomial::new([0, 0, 0, 0, 0, 0, 0])); // 0
+
+        let p1 = [1, 2, 0, 0, 0, 0, 1]; // x^6 + 2x + 1
+        let p2 = [1, 0, 0, 1, 0, 0, 0]; // x^3 + 1
+        // x^6 + 2x + 1 = x^3 * (x^3 + 1) -x^3 + 2x + 1 = (x^3 - 1) * (x^3 + 1) + 2x +2
+        let (quotient, remainder) = Polynomial::new(p1).div(&Polynomial::new(p2), 13).unwrap();
+        assert_eq!(quotient, Polynomial::new([12, 0, 0, 1, 0, 0, 0])); // x^3 - 1
+        assert_eq!(remainder, Polynomial::new([2, 2, 0, 0, 0, 0, 0])); // 2x + 2
     }
 }

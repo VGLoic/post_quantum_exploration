@@ -31,7 +31,7 @@ impl<const MODULUS: u64> PrimeFieldElement<MODULUS> {
     }
 
     pub fn inv(&self) -> Option<Self> {
-        modulo_inv(self.0, MODULUS).map(|v| Self(v))
+        modulo_inv(self.0, MODULUS).map(Self)
     }
 }
 
