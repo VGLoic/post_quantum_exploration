@@ -16,9 +16,10 @@ mod ntru_tests {
                 .coefficients
                 .iter()
                 .enumerate()
-                .filter(|(_, coeff)| **coeff != 0)
                 .map(|(i, coeff)| {
-                    if i == 0 {
+                    if coeff == &0 {
+                        "".to_string()
+                    } else if i == 0 {
                         format!("{}", coeff)
                     } else if i == 1 {
                         format!("{}x", coeff)
@@ -26,6 +27,7 @@ mod ntru_tests {
                         format!("{}x^{}", coeff, i)
                     }
                 })
+                .filter(|d| d.is_empty())
                 .collect();
             if terms.is_empty() {
                 return write!(f, "0");
