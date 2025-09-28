@@ -4,10 +4,31 @@ mod ntru_tests {
 
     const RING_DEGREE: usize = 7;
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Default)]
     struct Polynomial {
         // coefficients are in ascending degrees, i.e. a0 + a_1 * x + a_2 * x^2 + ... + a_6 * x^6
         coefficients: [u64; RING_DEGREE],
+    }
+
+    impl std::fmt::Display for Polynomial {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let terms: Vec<String> = self
+                .coefficients
+                .iter()
+                .enumerate()
+                .filter(|(_, coeff)| **coeff != 0)
+                .map(|(i, coeff)| {
+                    if i == 0 {
+                        format!("{}", coeff)
+                    } else if i == 1 {
+                        format!("{}x", coeff)
+                    } else {
+                        format!("{}x^{}", coeff, i)
+                    }
+                })
+                .collect();
+            write!(f, "{}", terms.join(" + "))
+        }
     }
 
     impl Polynomial {
@@ -83,11 +104,6 @@ mod ntru_tests {
                 return Some((Polynomial::new([0u64; RING_DEGREE]), self.clone()));
             }
 
-            // let resulting_polynomial_degree = self.degree() - other.degree();
-
-            // x^4 + 2x^2 + 8x + 1 / x^2 = x^2 * (x^2 + 2) + 8x + 1
-            // x^4 + 2x^2 + 8x + 1 / (x^2 + 3) = x^2 * (x^2 + 3) - x^2 + 8x + 1 = x^2 * (x^2 + 3) - 1 * (x^2 + 3) + 8x + 4 = (x^2 - 1) * (x^2 + 3) + 8x + 4
-
             // Starting from the highest degree term of self, we will subtract multiples of other until we reach the degree of other
             // e.g. if self has degree 6 and other has degree 3, we will do the iterationss for degrees 6, 5, 4 and 3.
 
@@ -111,8 +127,31 @@ mod ntru_tests {
         }
     }
 
-    // fn gcd(a: &Polynomial, b: &Polynomial) -> Polynomial {
-    // }
+    fn gcd(a: &Polynomial, b: &Polynomial, n: u64) -> Option<Polynomial> {
+        if a.is_zero() {
+            return Some(b.clone());
+        }
+        if b.is_zero() {
+            return Some(a.clone());
+        }
+
+        let (larger, mut smaller) = if a.degree() > b.degree() {
+            (a, b.clone())
+        } else {
+            (b, a.clone())
+        };
+        let (_, mut r) = larger.div(&smaller, n)?;
+
+        // As long as the remainder is not zero, we use the fact that gcd(p, q) = gcd(q, p % q)
+        // At some point, either we hit a non zero degree polynomial, either we arrive at order 0 where the remainder will always be zero
+        while !r.is_zero() {
+            let larger = smaller;
+            smaller = r;
+            (_, r) = larger.div(&smaller, n)?;
+        }
+
+        Some(smaller)
+    }
 
     #[test]
     fn test_polynomial_addition() {
@@ -153,9 +192,27 @@ mod ntru_tests {
 
         let p1 = [1, 2, 0, 0, 0, 0, 1]; // x^6 + 2x + 1
         let p2 = [1, 0, 0, 1, 0, 0, 0]; // x^3 + 1
-        // x^6 + 2x + 1 = x^3 * (x^3 + 1) -x^3 + 2x + 1 = (x^3 - 1) * (x^3 + 1) + 2x +2
+        // x^6 + 2x + 1 = x^3 * (x^3 + 1) -x^3 + 2x + 1 = (x^3 - 1) * (x^3 + 1) + 2x + 2
         let (quotient, remainder) = Polynomial::new(p1).div(&Polynomial::new(p2), 13).unwrap();
         assert_eq!(quotient, Polynomial::new([12, 0, 0, 1, 0, 0, 0])); // x^3 - 1
         assert_eq!(remainder, Polynomial::new([2, 2, 0, 0, 0, 0, 0])); // 2x + 2
+    }
+
+    #[test]
+    fn test_polynomial_gcd() {
+        let p1 = Polynomial::new([0, 0, 0, 1, 0, 0, 1]); // x^6 + x^3
+        let p2 = Polynomial::new([1, 0, 0, 1, 0, 0, 0]); // x^3 + 1
+        let g = gcd(&p1, &p2, 13).unwrap();
+        assert_eq!(g, p2); // x^3 + 1
+
+        let p1 = Polynomial::new([1, 2, 0, 0, 0, 0, 1]); // x^6 + 2x + 1
+        let p2 = Polynomial::new([1, 0, 0, 1, 0, 0, 0]); // x^3 + 1
+        let g = gcd(&p1, &p2, 13).unwrap(); // 2(x + 1)
+        assert_eq!(g, Polynomial::new([2, 2, 0, 0, 0, 0, 0]));
+
+        let p1 = Polynomial::new([1, 2, 0, 0, 0, 5, 1]); // x^6 + 5x^5 + 2x + 1
+        let p2 = Polynomial::new([1, 1, 0, 0, 0, 0, 0]); // x + 1
+        let g = gcd(&p1, &p2, 13).unwrap(); // 8
+        assert_eq!(g, Polynomial::new([8, 0, 0, 0, 0, 0, 0]));
     }
 }
