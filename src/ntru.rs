@@ -1,13 +1,98 @@
 #[cfg(test)]
 mod ntru_tests {
-    use crate::modular_arithmetic::*;
 
-    const RING_DEGREE: usize = 7;
+    use crate::centered_modular_arithmetic::*;
+
+    // NTRU parameters
+    //  - N: polynomial degree bound
+    //  - Q: large modulus,
+    //  - P: small modulus.
+    // N is prime, P and Q are coprime
+    const N: usize = 7;
+    const Q: u32 = 2048;
+    const P: u32 = 3;
+
+    #[derive(Debug)]
+    struct NtruKeyPair {
+        pub public_key: Polynomial,
+        pub private_f: Polynomial,
+        pub private_f_p: Polynomial,
+    }
+
+    impl NtruKeyPair {
+        fn generate() -> Self {
+            let mut g = Polynomial::generate(P);
+            while g.is_zero() {
+                g = Polynomial::generate(P);
+            }
+
+            let mut f = Polynomial::default();
+            let mut f_p = Polynomial::default();
+            let mut f_q = Polynomial::default();
+            while f_p.is_zero() && f_q.is_zero() {
+                f = Polynomial::generate(P);
+                if let Some(p) = f.inv(P)
+                    && let Some(q) = f.inv(Q)
+                {
+                    f_p = p;
+                    f_q = q;
+                }
+            }
+
+            let public_key = g.mul(&f_q, Q).scalar_mul(P.into(), Q);
+
+            Self {
+                public_key,
+                private_f: f,
+                private_f_p: f_p,
+            }
+        }
+
+        /// Decrypt a cyphertext using a private key and outputs the decrypted message
+        ///
+        /// Let us consider the definition of the cyphertext
+        /// ```
+        /// c = public_key * r + m (mod q) = p * r * g * f_q + m (mod q)
+        /// ```
+        /// We multiply by `c` by `f`:
+        /// ```
+        /// v = c * f (mod q) = p * r * g * f * f_q + f * m (mod q) = p * r * g + f * m (mod q)
+        /// ```
+        /// We then multiply by f_p mod p
+        /// ```
+        /// v * f_p (mod p) = p * r * g * f_p + f * f_p * m (mod p) = m (mod p)
+        /// ```
+        /// And `m` is recovered.
+        ///
+        ///
+        /// # Arguments
+        /// * `cyphertext` - the cyphertext to decrypt
+        fn decrypt(&self, cyphertext: &Polynomial) -> Polynomial {
+            let v = cyphertext.mul(&self.private_f, Q);
+            v.mul(&self.private_f_p, P)
+        }
+    }
+
+    /// Encrypt a message using the recipient public key. The cyphertext is returned.
+    ///
+    /// The cyphertext is defined as:
+    /// ```
+    /// c = public_key * r + m (mod q)
+    /// ```
+    /// Where `r` is a randomly generated polynomial.
+    ///
+    /// # Arguments
+    /// * `public_key` - the recipient public key,
+    /// * `message` - the message to encrypt, encoded as a polynomial
+    fn encrypt(public_key: &Polynomial, message: &Polynomial) -> Polynomial {
+        let r = Polynomial::generate(P);
+
+        r.mul(public_key, Q).add(message, Q)
+    }
 
     #[derive(Debug, Clone, PartialEq, Default)]
     struct Polynomial {
-        // coefficients are in ascending degrees, i.e. a0 + a_1 * x + a_2 * x^2 + ... + a_6 * x^6
-        coefficients: [u64; RING_DEGREE],
+        coefficients: [i64; N],
     }
 
     impl std::fmt::Display for Polynomial {
@@ -16,8 +101,8 @@ mod ntru_tests {
                 .coefficients
                 .iter()
                 .enumerate()
-                .map(|(i, coeff)| {
-                    if coeff == &0 {
+                .map(|(i, &coeff)| {
+                    if coeff == 0 {
                         "".to_string()
                     } else if i == 0 {
                         format!("{}", coeff)
@@ -27,7 +112,7 @@ mod ntru_tests {
                         format!("{}x^{}", coeff, i)
                     }
                 })
-                .filter(|d| d.is_empty())
+                .filter(|d| !d.is_empty())
                 .collect();
             if terms.is_empty() {
                 return write!(f, "0");
@@ -37,12 +122,20 @@ mod ntru_tests {
     }
 
     impl Polynomial {
-        fn new(coefficients: [u64; RING_DEGREE]) -> Self {
+        fn new(coefficients: [i64; N]) -> Self {
             Self { coefficients }
         }
 
-        fn add(&self, other: &Self, n: u64) -> Self {
-            let mut result_coefficients = [0u64; RING_DEGREE];
+        fn generate(n: u32) -> Self {
+            let mut coefficients = [0i64; N];
+            for coeff in coefficients.iter_mut() {
+                *coeff = to_centered_coordinates(rand::random(), n);
+            }
+            Self::new(coefficients)
+        }
+
+        fn add(&self, other: &Self, n: u32) -> Self {
+            let mut result_coefficients = [0i64; N];
 
             for (i, pair) in self
                 .coefficients
@@ -56,8 +149,8 @@ mod ntru_tests {
             Self::new(result_coefficients)
         }
 
-        fn neg(&self, n: u64) -> Self {
-            let mut coefficients = [0u64; RING_DEGREE];
+        fn neg(&self, n: u32) -> Self {
+            let mut coefficients = [0i64; N];
 
             for (i, coeff) in self.coefficients.iter().enumerate() {
                 coefficients[i] = modulo_neg(*coeff, n);
@@ -71,7 +164,7 @@ mod ntru_tests {
         }
 
         fn degree(&self) -> usize {
-            for i in (0..RING_DEGREE).rev() {
+            for i in (0..N).rev() {
                 if self.coefficients[i] != 0 {
                     return i;
                 }
@@ -79,8 +172,8 @@ mod ntru_tests {
             0
         }
 
-        fn mul(&self, other: &Self, n: u64) -> Self {
-            let mut raw_coefficients = [0u64; 2 * RING_DEGREE - 1];
+        fn mul(&self, other: &Self, n: u32) -> Self {
+            let mut raw_coefficients = [0i64; 2 * N - 1];
             for (i, a_i) in self.coefficients.iter().enumerate() {
                 for (j, b_j) in other.coefficients.iter().enumerate() {
                     raw_coefficients[i + j] =
@@ -88,32 +181,42 @@ mod ntru_tests {
                 }
             }
 
-            let (coefficients, to_be_filtered) = raw_coefficients.split_at_mut(RING_DEGREE);
+            let (coefficients, to_be_filtered) = raw_coefficients.split_at_mut(N);
 
             for (i, coeff) in to_be_filtered.iter().enumerate() {
-                // We subtract `coeff * x^i * (x^RING_DEGREE + 1)` to the full polynomial
-                // The `RING_DEGREE + i` coefficient will then vanish
+                // We subtract `coeff * x^i * (x^N + 1)` to the full polynomial
+                // The `N + i` coefficient will then vanish
                 // We only register the subtraction of the `i`th coefficient by `coeff`
                 coefficients[i] = modulo_add(coefficients[i], modulo_neg(*coeff, n), n);
             }
 
-            Self::new(coefficients.try_into().unwrap_or_else(|_| {
-                unreachable!("coefficients is necessarily of length RING_DEGREE")
-            }))
+            Self::new(
+                coefficients
+                    .try_into()
+                    .unwrap_or_else(|_| unreachable!("coefficients is necessarily of length N")),
+            )
         }
 
-        fn div(&self, other: &Self, n: u64) -> Option<(Self, Self)> {
+        fn scalar_mul(&self, scalar: i64, n: u32) -> Self {
+            let mut coefficients = [0i64; N];
+            for (i, &coeff) in self.coefficients.iter().enumerate() {
+                coefficients[i] = modulo_mul(coeff, scalar, n);
+            }
+            Polynomial::new(coefficients)
+        }
+
+        fn div(&self, other: &Self, n: u32) -> Option<(Self, Self)> {
             let other_degree = other.degree();
             let self_degree = self.degree();
             if self.is_zero() || other.is_zero() || other_degree > self_degree {
-                return Some((Polynomial::new([0u64; RING_DEGREE]), self.clone()));
+                return Some((Polynomial::new([0i64; N]), self.clone()));
             }
 
             // Starting from the highest degree term of self, we will subtract multiples of other until we reach the degree of other
             // e.g. if self has degree 6 and other has degree 3, we will do the iterationss for degrees 6, 5, 4 and 3.
 
             let mut remainder = self.clone();
-            let mut quotient_coefficients = [0u64; RING_DEGREE];
+            let mut quotient_coefficients = [0i64; N];
 
             let other_leading_coefficient = other.coefficients[other_degree];
 
@@ -121,17 +224,20 @@ mod ntru_tests {
                 let other_leading_coefficient_inv = modulo_inv(other_leading_coefficient, n)?;
                 let quotient_coefficient =
                     modulo_mul(remainder.coefficients[i], other_leading_coefficient_inv, n);
+
                 quotient_coefficients[i - other_degree] = quotient_coefficient;
-                let mut to_be_subtracted_coeff = [0u64; RING_DEGREE];
+
+                let mut to_be_subtracted_coeff = [0i64; N];
                 to_be_subtracted_coeff[i - other_degree] = quotient_coefficient;
                 let to_be_subtracted = Polynomial::new(to_be_subtracted_coeff).mul(other, n).neg(n);
+
                 remainder = remainder.add(&to_be_subtracted, n);
             }
 
             Some((Polynomial::new(quotient_coefficients), remainder))
         }
 
-        fn inv(&self, n: u64) -> Option<Polynomial> {
+        fn inv(&self, n: u32) -> Option<Polynomial> {
             if self.is_zero() {
                 return None;
             }
@@ -142,21 +248,21 @@ mod ntru_tests {
                 return Some(Polynomial::new([inv_coeff, 0, 0, 0, 0, 0, 0]));
             }
 
-            // We can't handle `R(x) = x^RING_DEGREE + 1` in our struct so we will perform a first division step of `R` by `self` in order to remove the x^RING_DEGREE coefficient
+            // We can't handle `R(x) = x^N + 1` in our struct so we will perform a first division step of `R` by `self` in order to remove the x^N coefficient
             // We end up with larger = R - correction * self
             let (corrected, correction) = {
                 let self_leading_coefficient = self.coefficients[self_degree];
                 let quotient_coefficient = modulo_inv(self_leading_coefficient, n)?;
 
-                let mut to_be_subtracted_coeff = [0u64; RING_DEGREE];
-                to_be_subtracted_coeff[RING_DEGREE - self_degree] = quotient_coefficient;
+                let mut to_be_subtracted_coeff = [0i64; N];
+                to_be_subtracted_coeff[N - self_degree] = quotient_coefficient;
                 let correction = Polynomial::new(to_be_subtracted_coeff);
 
-                // Every coefficient is multiplied by `quotient_coefficient`, increase its order of `RING_DEGREE - self_degree` and is negated, the highest one is ignored
-                let degree_increase = RING_DEGREE - self_degree;
-                let mut corrected_coefficients = [0u64; RING_DEGREE];
+                // Every coefficient is multiplied by `quotient_coefficient`, increase its order of `N - self_degree` and is negated, the highest one is ignored
+                let degree_increase = N - self_degree;
+                let mut corrected_coefficients = [0i64; N];
                 for (i, coeff) in self.coefficients.iter().enumerate() {
-                    if i + degree_increase < RING_DEGREE {
+                    if i + degree_increase < N {
                         corrected_coefficients[i + degree_increase] =
                             modulo_neg(modulo_mul(*coeff, quotient_coefficient, n), n);
                     }
@@ -243,38 +349,26 @@ mod ntru_tests {
         }
     }
 
-    fn gcd(a: &Polynomial, b: &Polynomial, n: u64) -> Option<Polynomial> {
-        if a.is_zero() {
-            return Some(b.clone());
-        }
-        if b.is_zero() {
-            return Some(a.clone());
-        }
+    #[test]
+    fn test_ntru_encryption() {
+        let message = Polynomial::generate(P);
+        let key_pair = NtruKeyPair::generate();
 
-        let (larger, mut smaller) = if a.degree() > b.degree() {
-            (a, b.clone())
-        } else {
-            (b, a.clone())
-        };
-        let (_, mut r) = larger.div(&smaller, n)?;
-
-        // As long as the remainder is not zero, we use the fact that gcd(p, q) = gcd(q, p % q)
-        // At some point, either we hit a non zero degree polynomial, either we arrive at order 0 where the remainder will always be zero
-        while !r.is_zero() {
-            let larger = smaller;
-            smaller = r;
-            (_, r) = larger.div(&smaller, n)?;
-        }
-
-        Some(smaller)
+        let cyphertext = encrypt(&key_pair.public_key, &message);
+        assert_eq!(key_pair.decrypt(&cyphertext), message);
     }
 
     #[test]
     fn test_polynomial_addition() {
         let p1 = Polynomial::new([1, 2, 3, 4, 5, 6, 7]);
         let p2 = Polynomial::new([7, 6, 5, 4, 3, 2, 1]);
-        let expected = Polynomial::new([8, 8, 8, 8, 8, 8, 8]);
+        let expected = Polynomial::new([-5, -5, -5, -5, -5, -5, -5]);
         assert_eq!(p1.add(&p2, 13), expected);
+
+        let p3 = Polynomial::new([12, 12, 12, 12, 12, 12, 12]);
+        let p4 = Polynomial::new([1, 1, 1, 1, 1, 1, 1]);
+        let expected2 = Polynomial::new([0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(p3.add(&p4, 13), expected2);
 
         let p3 = Polynomial::new([12, 12, 12, 12, 12, 12, 12]);
         let p4 = Polynomial::new([1, 1, 1, 1, 1, 1, 1]);
@@ -286,16 +380,8 @@ mod ntru_tests {
     fn test_polynomial_multiplication() {
         let p1 = Polynomial::new([1, 1, 1, 1, 1, 1, 1]);
         let p2 = Polynomial::new([2, 4, 8, 16, 32, 64, 128]);
-        let expected = Polynomial::new([
-            999_999_757,
-            999_999_765,
-            999_999_781,
-            999_999_813,
-            999_999_877,
-            1_000_000_005,
-            254,
-        ]);
-        assert_eq!(p1.mul(&p2, 1_000_000_007), expected);
+        let expected = Polynomial::new([-250, -242, -226, -194, -130, -2, 254]);
+        assert_eq!(p1.mul(&p2, 2048), expected);
     }
 
     #[test]
@@ -310,26 +396,8 @@ mod ntru_tests {
         let p2 = [1, 0, 0, 1, 0, 0, 0]; // x^3 + 1
         // x^6 + 2x + 1 = x^3 * (x^3 + 1) -x^3 + 2x + 1 = (x^3 - 1) * (x^3 + 1) + 2x + 2
         let (quotient, remainder) = Polynomial::new(p1).div(&Polynomial::new(p2), 13).unwrap();
-        assert_eq!(quotient, Polynomial::new([12, 0, 0, 1, 0, 0, 0])); // x^3 - 1
+        assert_eq!(quotient, Polynomial::new([-1, 0, 0, 1, 0, 0, 0])); // x^3 - 1
         assert_eq!(remainder, Polynomial::new([2, 2, 0, 0, 0, 0, 0])); // 2x + 2
-    }
-
-    #[test]
-    fn test_polynomial_gcd() {
-        let p1 = Polynomial::new([0, 0, 0, 1, 0, 0, 1]); // x^6 + x^3
-        let p2 = Polynomial::new([1, 0, 0, 1, 0, 0, 0]); // x^3 + 1
-        let g = gcd(&p1, &p2, 13).unwrap();
-        assert_eq!(g, p2); // x^3 + 1
-
-        let p1 = Polynomial::new([1, 2, 0, 0, 0, 0, 1]); // x^6 + 2x + 1
-        let p2 = Polynomial::new([1, 0, 0, 1, 0, 0, 0]); // x^3 + 1
-        let g = gcd(&p1, &p2, 13).unwrap(); // 2(x + 1)
-        assert_eq!(g, Polynomial::new([2, 2, 0, 0, 0, 0, 0]));
-
-        let p1 = Polynomial::new([1, 2, 0, 0, 0, 5, 1]); // x^6 + 5x^5 + 2x + 1
-        let p2 = Polynomial::new([1, 1, 0, 0, 0, 0, 0]); // x + 1
-        let g = gcd(&p1, &p2, 13).unwrap(); // 8
-        assert_eq!(g, Polynomial::new([8, 0, 0, 0, 0, 0, 0]));
     }
 
     #[test]
