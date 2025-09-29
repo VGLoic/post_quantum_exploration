@@ -85,7 +85,7 @@ mod toy_lwe_tests {
     }
 
     fn truncate(value: FieldElement, order: u8) -> FieldElement {
-        let truncate_factor = 10u64.pow(order.into());
+        let truncate_factor = 10u32.pow(order.into());
         let truncated_value = value.inner() / truncate_factor * truncate_factor;
         FieldElement::new(truncated_value)
     }
@@ -110,7 +110,7 @@ mod toy_lwe_tests {
 
     fn low_amplitude_random_vector(order: u8) -> Vector {
         let mut v = [FieldElement::new(0); 4];
-        let higher_limit = 10u64.pow(order.into());
+        let higher_limit = 10u32.pow(order.into());
         for value in v.iter_mut() {
             *value = FieldElement::new(rand::random_range(0..higher_limit));
         }
@@ -124,9 +124,7 @@ mod toy_lwe_tests {
                 .map(|_| {
                     let mut row = [FieldElement::new(0); 4];
                     for item in row.iter_mut() {
-                        *item = FieldElement::new(rand::random_range(
-                            1_000_000_000_u64..1_000_000_000_000_u64,
-                        ));
+                        *item = FieldElement::new(rand::random_range(1_000_000_000_u32..u32::MAX));
                     }
                     row
                 })
