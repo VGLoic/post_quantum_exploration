@@ -3,6 +3,43 @@ mod ntru_tests {
 
     use crate::centered_modular_arithmetic::*;
 
+    /*
+     * This is a simple implementation of the NTRU encryption scheme
+     * See https://en.wikipedia.org/wiki/NTRUEncrypt for more details
+     *
+     * This implementation is not optimized for performance or security, and is only meant for educational purposes.
+     * In particular, the random polynomial generation is not secure, and the parameters are not chosen for security.
+     *
+     * This scheme is based on polynomial arithmetic in the ring R = Z[x] / (x^N + 1) where N is prime.
+     *
+     * We first generate polynomials with low amplitude coefficients in {-1, 0, 1} for the private keys or the messages to encrypt.
+     * The public keys or the cyphertexts are then polynomials with larger coefficients in a larger modulus.
+     * Knowledge of the private key allows to reduce the coefficients back to the low amplitude range and recover the message.
+     *
+     * In more details:
+     * # Key generation
+     * - Generate two polynomials `f` and `g` with coefficients in {-1, 0, 1},
+     * - Derive `f_p` and `f_q`, the inverses of `f` modulo `p` and `q` respectively,
+     * - The public key is `h = p * g * f_q (mod q)`,
+     * - The private key is `(f, f_p)`.
+     *
+     * # Encryption
+     * - Generate a random polynomial `r` with coefficients in {-1, 0, 1},
+     * - The cyphertext is `c = public_key * r + m (mod q)`, where `m` is the message polynomial with coefficients in {-1, 0, 1}.
+     *
+     * # Decryption
+     * - Compute `v = c * f (mod q) = p * r * g + f * m (mod q)`,
+     * - Compute `v * f_p (mod p) = m (mod p)`, and recover `m`.
+     *
+     * # Note 1
+     * Because of the ring structure, the multiplication is done modu `x^N + 1` and the degree of the polynomials is bounded by `N - 1`.
+     *
+     * # Note 2
+     * The operations are done modulo `p` or `q`, and the coefficients are always reduced to the centered range `[-(n/2), (n/2)]`.
+     * This centered reduction is crucial to ensure the correctness of the decryption. Otherwise, the coefficients could wrap around and lead to incorrect results.
+     * In essence, the cyphertext computation is done modulo `q`, but the coefficients are expected to be in the range `[-(q/2), (q/2)]` to ensure that when multiplied by `f` and reduced modulo `p`, the original message `m` can be correctly recovered.
+     */
+
     // NTRU parameters
     //  - N: polynomial degree bound
     //  - Q: large modulus,
@@ -20,6 +57,13 @@ mod ntru_tests {
     }
 
     impl NtruKeyPair {
+        /// Generate a new NTRU key pair
+        /// - The public key is `h = p * g * f_q (mod q)`, where `f_q` is the inverse of `f mod q`
+        /// - The private key is `(f, f_p)`, where `f_p` is the inverse of `f mod p`
+        ///
+        /// The polynomials `f` and `g` are randomly generated with coefficients in {-1, 0, 1}
+        ///
+        /// We ensure that `f` is invertible mod `p` and mod `q`, and that `g` is not the zero polynomial.
         fn generate() -> Self {
             let mut g = Polynomial::generate(P);
             while g.is_zero() {
@@ -122,10 +166,24 @@ mod ntru_tests {
     }
 
     impl Polynomial {
+        /// Create a new polynomial from the given coefficients
+        /// # Arguments
+        /// * `coefficients` - the coefficients of the polynomial, in increasing order of degree
+        /// # Example
+        /// ```
+        /// let p = Polynomial::new([1, 2, 3, 4, 5, 6, 7]); // 1 + 2x + 3x^2 + 4x^3 + 5x^4 + 6x^5 + 7x^6
+        /// ```
         fn new(coefficients: [i64; N]) -> Self {
             Self { coefficients }
         }
 
+        /// Generate a random polynomial with coefficients in the range `[-(n/2), (n/2)]`
+        /// # Arguments
+        /// * `n` - the modulus to use for the coefficients
+        /// # Example
+        /// ```
+        /// let p = Polynomial::generate(13); // Random polynomial with coefficients in [-6, 6]
+        /// ```
         fn generate(n: u32) -> Self {
             let mut coefficients = [0i64; N];
             for coeff in coefficients.iter_mut() {
@@ -134,6 +192,10 @@ mod ntru_tests {
             Self::new(coefficients)
         }
 
+        /// Add two polynomials modulo `n`, resulting polynomial has coefficients in `[-(n/2), (n/2)]`
+        /// # Arguments
+        /// * `other` - the other polynomial to add
+        /// * `n` - the modulus to use for the addition
         fn add(&self, other: &Self, n: u32) -> Self {
             let mut result_coefficients = [0i64; N];
 
@@ -149,6 +211,9 @@ mod ntru_tests {
             Self::new(result_coefficients)
         }
 
+        /// Negate a polynomial modulo `n`, resulting polynomial has coefficients in `[-(n/2), (n/2)]`
+        /// # Arguments
+        /// * `n` - the modulus to use for the negation
         fn neg(&self, n: u32) -> Self {
             let mut coefficients = [0i64; N];
 
@@ -159,10 +224,12 @@ mod ntru_tests {
             Self::new(coefficients)
         }
 
+        /// Check if the polynomial is the zero polynomial
         fn is_zero(&self) -> bool {
             !self.coefficients.iter().any(|v| *v != 0)
         }
 
+        /// Return the degree of the polynomial
         fn degree(&self) -> usize {
             for i in (0..N).rev() {
                 if self.coefficients[i] != 0 {
@@ -172,6 +239,10 @@ mod ntru_tests {
             0
         }
 
+        /// Multiply two polynomials modulo `n` and modulo `x^N + 1`, resulting polynomial has coefficients in `[-(n/2), (n/2)]`
+        /// # Arguments
+        /// * `other` - the other polynomial to multiply
+        /// * `n` - the modulus to use for the multiplication
         fn mul(&self, other: &Self, n: u32) -> Self {
             let mut raw_coefficients = [0i64; 2 * N - 1];
             for (i, a_i) in self.coefficients.iter().enumerate() {
@@ -197,6 +268,10 @@ mod ntru_tests {
             )
         }
 
+        /// Multiply a polynomial by a scalar modulo `n`, resulting polynomial has coefficients in `[-(n/2), (n/2)]`
+        /// # Arguments
+        /// * `scalar` - the scalar to multiply by
+        /// * `n` - the modulus to use for the multiplication
         fn scalar_mul(&self, scalar: i64, n: u32) -> Self {
             let mut coefficients = [0i64; N];
             for (i, &coeff) in self.coefficients.iter().enumerate() {
@@ -205,6 +280,10 @@ mod ntru_tests {
             Polynomial::new(coefficients)
         }
 
+        /// Divide two polynomials modulo `n`, resulting (quotient, remainder) tuple of polynomials has coefficients in `[-(n/2), (n/2)]`
+        /// # Arguments
+        /// * `other` - the other polynomial to divide by
+        /// * `n` - the modulus to use for the division
         fn div(&self, other: &Self, n: u32) -> Option<(Self, Self)> {
             let other_degree = other.degree();
             let self_degree = self.degree();
@@ -237,6 +316,10 @@ mod ntru_tests {
             Some((Polynomial::new(quotient_coefficients), remainder))
         }
 
+        /// Compute the inverse of the polynomial modulo `n` and modulo `x^N + 1`, resulting polynomial has coefficients in `[-(n/2), (n/2)]`
+        /// If the polynomial is not invertible, returns None
+        /// # Arguments
+        /// * `n` - the modulus to use for the inversion
         fn inv(&self, n: u32) -> Option<Polynomial> {
             if self.is_zero() {
                 return None;
