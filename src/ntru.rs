@@ -4,7 +4,7 @@ mod ntru_tests {
     use crate::centered_modular_arithmetic::*;
 
     /*
-     * This is a simple implementation of the NTRU encryption scheme
+     * This is a simple implementation of the N-th degree Truncated polynomial Ring Units (NTRU) encryption scheme
      * See https://en.wikipedia.org/wiki/NTRUEncrypt for more details
      *
      * This implementation is not optimized for performance or security, and is only meant for educational purposes.
