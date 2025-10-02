@@ -35,53 +35,20 @@ pub fn modulo_inv(a: u32, n: u32) -> Option<u32> {
         return Some(1);
     }
 
-    // At each iteration, we compute the quotient and rest of larger by smaller, i.e. larger = quotient * smaller + rest
-    // if rest is not zero, we record the quotient and we repeat with `(smaller, larger % smaller)`
-    let mut quotients = vec![];
+    let (mut new_r, mut r) = (Into::<i128>::into(a), Into::<i128>::into(n));
+    let (mut new_t, mut t) = (1_i128, 0_i128);
 
-    let mut larger = n;
-    let mut smaller = modulo(a.into(), n);
-    let mut r = larger % smaller;
-
-    while r != 0 {
-        // The current quotient is registered
-        quotients.push(larger / smaller);
-
-        // We repeat with (smaller, larger % smaller)
-        larger = smaller;
-        smaller = r;
-        r = larger % smaller;
+    while new_r != 0 {
+        let q = r / new_r;
+        (new_r, r) = (r - q * new_r, new_r);
+        (new_t, t) = (t - q * new_t, new_t);
     }
 
-    // If the gcd is not 1, then a has no inverse mod n
-    if smaller != 1 {
+    if r != 1 {
         return None;
     }
 
-    // At this point we have `smaller` to 1 without rest,
-    // going to the last record we then have something of the form larger_k = q_k * smaller_k + 1,
-    // we isolate 1 as 1 = larger_k - q_k * smaller_k.
-    // Let us define alpha_k and beta_k with the rewrite of the equation: `1 = alpha_k * larger_k + beta_k * smaller_k`,
-    // Using the relations: `larger_k = smaller_(k-1)` and `smaller_k = larger_(k-1) - q_(k-1) * smaller_(k-1)`, we can define the suite for `alpha_k` and `beta_k` as:
-    // ```
-    // alpha_(k-1) = beta_k, alpha_k = 1,
-    // beta_(k-1) = alpha_k - beta_k * q_(k-1), beta_k = -q_k
-    // ```
-    // Now that we have our definitions, we can use the registered quotients in order to recompute the `beta_0`
-
-    // Note that quotients list is necessarily non empty, otherwise `smaller` would be a divider of the prime `N`, therefore `smaller = 1` but this case is treated at the start
-    let last_quotient = quotients
-        .pop()
-        .unwrap_or_else(|| unreachable!("quotient is necessarily non empty"));
-
-    let mut alpha: i128 = 1;
-    let mut beta: i128 = -Into::<i128>::into(last_quotient);
-
-    for quotient in quotients.iter().rev() {
-        (alpha, beta) = (beta, alpha - beta * Into::<i128>::into(*quotient));
-    }
-
-    Some(modulo(beta, n))
+    Some(modulo(t, n))
 }
 
 #[allow(dead_code)]
