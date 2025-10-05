@@ -6,6 +6,7 @@ mod merkletree_v2;
 mod modular_arithmetic;
 mod ntru;
 pub mod primefield;
+mod stark;
 mod toy_lwe;
 mod toy_rlwe;
 mod winternitz_sig;
