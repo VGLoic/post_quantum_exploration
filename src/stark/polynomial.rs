@@ -25,12 +25,15 @@ impl<const N: u32> Polynomial<N> {
     }
 
     pub fn interpolate_from_roots(roots: Vec<PrimeFieldElement<N>>) -> Self {
+        Self::interpolate_from_roots_slice(&roots)
+    }
+    pub fn interpolate_from_roots_slice(roots: &[PrimeFieldElement<N>]) -> Self {
         if roots.is_empty() {
             return Self::default();
         }
         let mut coefficients = Vec::with_capacity(roots.len());
         coefficients.push(PrimeFieldElement::from(1));
-        for (i, x) in roots.into_iter().enumerate() {
+        for (i, x) in roots.iter().enumerate() {
             let x_neg = x.neg();
             // Handle leading coefficient
             coefficients.push(1.into());
@@ -46,17 +49,17 @@ impl<const N: u32> Polynomial<N> {
     }
 
     pub fn interpolate_from_coordinates(
-        coordinates: Vec<(PrimeFieldElement<N>, PrimeFieldElement<N>)>,
+        points: Vec<PrimeFieldElement<N>>,
+        values: Vec<PrimeFieldElement<N>>,
     ) -> Option<Self> {
-        if coordinates.is_empty() {
+        if points.is_empty() || points.len() != values.len() {
             return Some(Self::default());
         }
 
-        let roots: Vec<PrimeFieldElement<N>> = coordinates.iter().map(|c| c.0.clone()).collect();
-        let master_numerator = Self::interpolate_from_roots(roots);
+        let master_numerator = Self::interpolate_from_roots_slice(&points);
 
-        let mut p_coefficients = vec![PrimeFieldElement::<N>::from(0); coordinates.len()];
-        for (x_i, y_i) in coordinates {
+        let mut p_coefficients = vec![PrimeFieldElement::<N>::from(0); points.len()];
+        for (x_i, y_i) in points.into_iter().zip(values) {
             let (numerator, _) = master_numerator.div(&Self::new(vec![x_i.neg(), 1.into()]))?;
             let factor = y_i.mul(&numerator.evaluate(x_i).inv()?);
             for (j, c_j) in numerator.coefficients.into_iter().enumerate() {
@@ -115,15 +118,6 @@ impl<const N: u32> Polynomial<N> {
         Self::new(coefficients)
     }
 
-    pub fn scalar_mul(&self, a: PrimeFieldElement<N>) -> Self {
-        let self_degree = self.degree();
-        let mut scaled_coefficients = Vec::with_capacity(self_degree + 1);
-        for c in self.coefficients.iter() {
-            scaled_coefficients.push(c.mul(&a));
-        }
-        Self::new(scaled_coefficients)
-    }
-
     pub fn div(&self, other: &Self) -> Option<(Self, Self)> {
         if other.is_zero() {
             return None;
@@ -141,14 +135,22 @@ impl<const N: u32> Polynomial<N> {
 
         let divider_leading_coefficient_inv = other.coefficients[denominator_degree].inv()?;
         for i in (denominator_degree..=num_degree).rev() {
-            let remainder_coeff = remainder_coefficients[i];
-            let q = remainder_coeff.mul(&divider_leading_coefficient_inv);
-            quotient_coefficients.push(q);
-            let scaling_degree = i - denominator_degree;
-            for (j, denominator_coeff) in other.coefficients.iter().enumerate() {
-                remainder_coefficients[j + scaling_degree] =
-                    remainder_coefficients[j + scaling_degree].add(&q.mul(denominator_coeff).neg());
+            let remainder_coefficient = remainder_coefficients[i];
+            if remainder_coefficient.inner() != 0 {
+                let scaling_degree = i - denominator_degree;
+                let q = remainder_coefficients[i].mul(&divider_leading_coefficient_inv);
+                quotient_coefficients.push(q);
+                if q.inner() != 0 {
+                    for (j, denominator_coeff) in other.coefficients.iter().enumerate() {
+                        remainder_coefficients[j + scaling_degree] = remainder_coefficients
+                            [j + scaling_degree]
+                            .add(&q.mul(denominator_coeff).neg());
+                    }
+                }
+            } else {
+                quotient_coefficients.push(0.into());
             }
+            remainder_coefficients.pop();
         }
 
         quotient_coefficients.reverse();
@@ -162,8 +164,8 @@ impl<const N: u32> Polynomial<N> {
     pub fn evaluate(&self, x: PrimeFieldElement<N>) -> PrimeFieldElement<N> {
         let mut evaluation = self
             .coefficients
-            .get(0)
-            .map(|v| v.clone())
+            .first()
+            .copied()
             .unwrap_or(PrimeFieldElement::from(0));
         let mut power_of_x_evaluated = PrimeFieldElement::from(1);
         for c in self.coefficients.iter().skip(1) {
@@ -231,17 +233,17 @@ mod polynomial_tests {
     #[test]
     fn test_interpolation_from_coordinates() {
         let number_of_points: u32 = rand::random_range(2..=100);
-        let coordinates: Vec<(
-            PrimeFieldElement<1_000_000_007>,
-            PrimeFieldElement<1_000_000_007>,
-        )> = (0..number_of_points)
-            .map(|x| {
+        let points: Vec<PrimeFieldElement<1_000_000_007>> =
+            (0..number_of_points).map(PrimeFieldElement::from).collect();
+        let values: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
+            .map(|_| {
                 let y: u32 = rand::random();
-                (PrimeFieldElement::from(x), PrimeFieldElement::from(y))
+                PrimeFieldElement::from(y)
             })
             .collect();
-        let p = Polynomial1B7::interpolate_from_coordinates(coordinates.clone()).unwrap();
-        for (x, y) in coordinates {
+        let p =
+            Polynomial1B7::interpolate_from_coordinates(points.clone(), values.clone()).unwrap();
+        for (x, y) in points.into_iter().zip(values) {
             assert_eq!(p.evaluate(x), y);
         }
     }
