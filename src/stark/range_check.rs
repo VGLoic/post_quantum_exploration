@@ -109,8 +109,8 @@ mod test {
 
     fn derive_proofs<'a>(
         tree: &'a MerkleTreeV2<StarkLeaf<N>>,
+        points: Vec<PrimeFieldElement<N>>,
     ) -> Result<Vec<(PrimeFieldElement<N>, ValueWithProof<'a, StarkLeaf<N>>)>, anyhow::Error> {
-        let points = root_to_points(tree.root_hash());
         let mut proofs: Vec<(PrimeFieldElement<N>, ValueWithProof<StarkLeaf<N>>)> = vec![];
         for point in points {
             let selector = tree.get(&point_to_selector(point))?;
@@ -119,7 +119,7 @@ mod test {
         Ok(proofs)
     }
 
-    fn root_to_points(root: &[u8; 32]) -> Vec<PrimeFieldElement<N>> {
+    fn pseudo_random_select_points(root: &[u8; 32]) -> Vec<PrimeFieldElement<N>> {
         let mut points = Vec::with_capacity(16);
         for chunk in root.chunks(2) {
             let digest = Sha3_256::digest(chunk);
@@ -174,13 +174,14 @@ mod test {
 
         let commitments_tree =
             generate_commitments_tree(&p, &constraint_polynomial, &constrained_points).unwrap();
-        let proofs = derive_proofs(&commitments_tree).unwrap();
+        let selected_points = pseudo_random_select_points(commitments_tree.root_hash());
+        let proofs = derive_proofs(&commitments_tree, selected_points).unwrap();
 
         // ######################
         // ###### Bob part ######
         // ######################
 
-        let expected_points = root_to_points(commitments_tree.root_hash());
+        let expected_points = pseudo_random_select_points(commitments_tree.root_hash());
 
         for ((point, value_with_proof), expected_point) in proofs.iter().zip(&expected_points) {
             assert_eq!(point, expected_point);
