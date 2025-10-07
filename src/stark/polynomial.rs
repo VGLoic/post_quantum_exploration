@@ -34,6 +34,9 @@ impl<const N: u32> Polynomial<N> {
         let mut coefficients = Vec::with_capacity(roots.len());
         coefficients.push(PrimeFieldElement::from(1));
         for (i, x) in roots.iter().enumerate() {
+            if i % 10_000 == 0 {
+                println!("[interpolation from roots] reached a 10_000");
+            }
             let x_neg = x.neg();
             // Handle leading coefficient
             coefficients.push(1.into());
@@ -130,30 +133,26 @@ impl<const N: u32> Polynomial<N> {
         }
 
         let quotient_degree = num_degree - denominator_degree;
-        let mut quotient_coefficients = Vec::with_capacity(1 + quotient_degree);
+        let mut quotient_coefficients = vec![PrimeFieldElement::from(0); 1 + quotient_degree];
         let mut remainder_coefficients = self.coefficients.clone();
 
         let divider_leading_coefficient_inv = other.coefficients[denominator_degree].inv()?;
         for i in (denominator_degree..=num_degree).rev() {
-            let remainder_coefficient = remainder_coefficients[i];
-            if remainder_coefficient.inner() != 0 {
+            if remainder_coefficients[i].inner() != 0 {
                 let scaling_degree = i - denominator_degree;
                 let q = remainder_coefficients[i].mul(&divider_leading_coefficient_inv);
-                quotient_coefficients.push(q);
+                quotient_coefficients[scaling_degree] = q;
                 if q.inner() != 0 {
+                    let q_neg = q.neg();
                     for (j, denominator_coeff) in other.coefficients.iter().enumerate() {
                         remainder_coefficients[j + scaling_degree] = remainder_coefficients
                             [j + scaling_degree]
-                            .add(&q.mul(denominator_coeff).neg());
+                            .add(&denominator_coeff.mul(&q_neg));
                     }
                 }
-            } else {
-                quotient_coefficients.push(0.into());
             }
             remainder_coefficients.pop();
         }
-
-        quotient_coefficients.reverse();
 
         Some((
             Self::new(quotient_coefficients),

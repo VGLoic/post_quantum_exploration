@@ -1,6 +1,6 @@
 /// Computes a mod n, ensuring the result is non-negative
 pub fn modulo(a: i128, n: u32) -> u32 {
-    let n_as_i128: i128 = n.into();
+    let n_as_i128: i128 = n as i128;
     let mut res = a % n_as_i128;
     if res < 0 {
         res += n_as_i128;
@@ -10,19 +10,18 @@ pub fn modulo(a: i128, n: u32) -> u32 {
 
 /// Computes a + b (mod n)
 pub fn modulo_add(a: u32, b: u32, n: u32) -> u32 {
-    ((Into::<u64>::into(a) + Into::<u64>::into(b)) % Into::<u64>::into(n)) as u32
+    ((a as u64 + b as u64) % (n as u64)) as u32
 }
 
 /// Computes -a (mod n)
 pub fn modulo_neg(a: u32, n: u32) -> u32 {
-    let a = a % n;
-    if a == 0 { 0 } else { n - a }
+    if a != 0 { n - a } else { 0 }
 }
 
 /// Computes a * b (mod n)
 pub fn modulo_mul(a: u32, b: u32, n: u32) -> u32 {
-    let product = Into::<u64>::into(a) * Into::<u64>::into(b);
-    (product % Into::<u64>::into(n)) as u32
+    let product = (a as u64) * (b as u64);
+    (product % (n as u64)) as u32
 }
 
 /// Computes a^(-1) (mod n) using the Extended Euclidean Algorithm
@@ -35,7 +34,7 @@ pub fn modulo_inv(a: u32, n: u32) -> Option<u32> {
         return Some(1);
     }
 
-    let (mut new_r, mut r) = (Into::<i128>::into(a), Into::<i128>::into(n));
+    let (mut new_r, mut r) = ((a as i128), (n as i128));
     let (mut new_t, mut t) = (1_i128, 0_i128);
 
     while new_r != 0 {
