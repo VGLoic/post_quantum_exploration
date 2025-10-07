@@ -57,7 +57,7 @@ mod test {
     fn generate_commitments_tree(
         p: &Polynomial1B7,
         constraint_polynomial: &Polynomial1B7,
-        z_polynomial: &Polynomial1B7,
+        constrained_points: &[FieldElement1B7],
     ) -> Result<MerkleTreeV2<StarkLeaf<N>>, anyhow::Error> {
         let mut values: Vec<StarkLeaf<N>> = Vec::with_capacity(TOTAL_POINTS as usize);
         for i in 0u32..TOTAL_POINTS {
@@ -68,7 +68,10 @@ mod test {
             let d_eval = if i <= P_DEGREE {
                 0.into()
             } else {
-                let z_eval = z_polynomial.evaluate(i_as_field_element);
+                let z_eval = Polynomial1B7::interpolate_and_evaluate_from_roots_slice(
+                    constrained_points,
+                    &i_as_field_element,
+                );
                 cp_eval.mul(
                     &z_eval
                         .inv()
@@ -147,19 +150,19 @@ mod test {
         // ###### Setup ######
         // ###################
 
-        let points: Vec<FieldElement1B7> = (0..(1 + P_DEGREE)).map(FieldElement1B7::from).collect();
+        let constrained_points: Vec<FieldElement1B7> =
+            (0..=P_DEGREE).map(FieldElement1B7::from).collect(); // x(x - 1)...(x - P_DEGREE)
         let constraint_polynomial =
-            Polynomial1B7::interpolate_from_roots((0..=9).map(FieldElement1B7::from).collect());
-        let z_polynomial = Polynomial1B7::interpolate_from_roots(points.clone());
+            Polynomial1B7::interpolate_from_roots((0..=9).map(FieldElement1B7::from).collect()); // x(x - 1)...(x - 9)
 
         // ########################
         // ###### Alice part ######
         // ########################
 
-        let p_values = (0..(1 + P_DEGREE))
+        let p_values = (0..=P_DEGREE)
             .map(|_| FieldElement1B7::from(rand::random_range(0u32..10u32)))
             .collect();
-        let p = Polynomial1B7::interpolate_from_coordinates(points, p_values)
+        let p = Polynomial1B7::interpolate_from_coordinates(constrained_points.clone(), p_values)
             .ok_or(anyhow!(
                 "Unable to interpolate P polynomial from coordinates"
             ))
@@ -170,7 +173,7 @@ mod test {
         }
 
         let commitments_tree =
-            generate_commitments_tree(&p, &constraint_polynomial, &z_polynomial).unwrap();
+            generate_commitments_tree(&p, &constraint_polynomial, &constrained_points).unwrap();
         let proofs = derive_proofs(&commitments_tree).unwrap();
 
         // ######################
@@ -184,7 +187,10 @@ mod test {
             if point.inner() <= P_DEGREE {
                 assert_eq!(value_with_proof.value.cp, 0.into());
             } else {
-                let z_eval = z_polynomial.evaluate(*point);
+                let z_eval = Polynomial1B7::interpolate_and_evaluate_from_roots_slice(
+                    &constrained_points,
+                    point,
+                );
                 assert_eq!(
                     z_eval.mul(&value_with_proof.value.d),
                     value_with_proof.value.cp

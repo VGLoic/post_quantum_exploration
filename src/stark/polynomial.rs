@@ -51,6 +51,23 @@ impl<const N: u32> Polynomial<N> {
         Self::new(coefficients)
     }
 
+    pub fn interpolate_and_evaluate_from_roots_slice(
+        roots: &[PrimeFieldElement<N>],
+        x: &PrimeFieldElement<N>,
+    ) -> PrimeFieldElement<N> {
+        if roots.is_empty() {
+            return 0.into();
+        }
+
+        let mut result = PrimeFieldElement::<N>::from(1);
+
+        for root in roots {
+            result = result.mul(&x.add(&root.neg()));
+        }
+
+        result
+    }
+
     pub fn interpolate_from_coordinates(
         points: Vec<PrimeFieldElement<N>>,
         values: Vec<PrimeFieldElement<N>>,
@@ -226,6 +243,23 @@ mod polynomial_tests {
         let p = Polynomial1B7::interpolate_from_roots(points.clone());
         for point in points {
             assert_eq!(p.evaluate(point), 0.into());
+        }
+    }
+
+    #[test]
+    fn test_interpolation_and_evaluation_from_roots() {
+        let number_of_points = rand::random_range(2..=100);
+        let points: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
+            .map(|_| {
+                let v: u32 = rand::random();
+                PrimeFieldElement::from(v)
+            })
+            .collect();
+        for point in points.iter() {
+            assert_eq!(
+                Polynomial1B7::interpolate_and_evaluate_from_roots_slice(&points, point),
+                0.into()
+            );
         }
     }
 
