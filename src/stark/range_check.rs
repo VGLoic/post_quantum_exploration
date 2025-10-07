@@ -39,6 +39,7 @@ impl<const N: u32> Default for StarkLeaf<N> {
 #[cfg(test)]
 mod test {
     use anyhow::anyhow;
+    use sha3::{Digest, Sha3_256};
 
     use super::*;
     use crate::{
@@ -122,6 +123,30 @@ mod test {
         selector
     }
 
+    fn generate_proofs<'a>(
+        tree: &'a MerkleTreeV2<StarkLeaf<N>>,
+    ) -> Result<Vec<(PrimeFieldElement<N>, ValueWithProof<'a, StarkLeaf<N>>)>, anyhow::Error> {
+        let points = root_to_points(tree.root_hash());
+        let mut proofs: Vec<(PrimeFieldElement<N>, ValueWithProof<StarkLeaf<N>>)> = vec![];
+        for point in points {
+            let selector = tree.get(&point_to_selector(point))?;
+            proofs.push((point, selector))
+        }
+        Ok(proofs)
+    }
+
+    fn root_to_points(root: &[u8; 32]) -> Vec<PrimeFieldElement<N>> {
+        let mut points = Vec::with_capacity(16);
+        for chunk in root.chunks(2) {
+            let digest = Sha3_256::digest(chunk);
+            let mut le_bytes = [0u8; 4];
+            le_bytes.clone_from_slice(&digest[0..4]);
+            let point_as_u32 = u32::from_le_bytes(le_bytes) % TOTAL_POINTS;
+            points.push(PrimeFieldElement::<N>::from(point_as_u32));
+        }
+        points
+    }
+
     #[test]
     fn test_selector() {
         assert_eq!(point_to_selector(0.into()), vec![false; 20]);
@@ -142,29 +167,22 @@ mod test {
         // ########################
 
         let commitments_tree = generate_commitments_tree().unwrap();
-
-        // Bob asks 16 points
-        let mut proofs: Vec<(PrimeFieldElement<N>, ValueWithProof<StarkLeaf<N>>)> = vec![];
-        for _ in 0..16 {
-            let point_u32: u32 = rand::random_range(0..TOTAL_POINTS);
-            let point = PrimeFieldElement::<N>::from(point_u32);
-            proofs.push((
-                point,
-                commitments_tree.get(&point_to_selector(point)).unwrap(),
-            ));
-        }
+        let proofs = generate_proofs(&commitments_tree).unwrap();
 
         // ######################
         // ###### Bob part ######
         // ######################
 
-        for (point, value_with_proof) in proofs {
+        let expected_points = root_to_points(commitments_tree.root_hash());
+
+        for ((point, value_with_proof), expected_point) in proofs.iter().zip(&expected_points) {
+            assert_eq!(point, expected_point);
             if point.inner() <= P_DEGREE {
                 assert_eq!(value_with_proof.value.cp, 0.into());
             }
             let formatted_proof: Vec<_> = value_with_proof
                 .proof
-                .into_iter()
+                .iter()
                 .map(|p| (p.0, p.1.to_owned()))
                 .collect();
             verify_proof(
