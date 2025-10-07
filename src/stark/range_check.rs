@@ -123,7 +123,7 @@ mod test {
         selector
     }
 
-    fn generate_proofs<'a>(
+    fn derive_proofs<'a>(
         tree: &'a MerkleTreeV2<StarkLeaf<N>>,
     ) -> Result<Vec<(PrimeFieldElement<N>, ValueWithProof<'a, StarkLeaf<N>>)>, anyhow::Error> {
         let points = root_to_points(tree.root_hash());
@@ -167,7 +167,7 @@ mod test {
         // ########################
 
         let commitments_tree = generate_commitments_tree().unwrap();
-        let proofs = generate_proofs(&commitments_tree).unwrap();
+        let proofs = derive_proofs(&commitments_tree).unwrap();
 
         // ######################
         // ###### Bob part ######
