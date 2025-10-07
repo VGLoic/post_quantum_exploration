@@ -54,30 +54,11 @@ mod test {
     type FieldElement1B7 = PrimeFieldElement<N>;
     type Polynomial1B7 = Polynomial<N>;
 
-    fn generate_commitments_tree() -> Result<MerkleTreeV2<StarkLeaf<N>>, anyhow::Error> {
-        let mut points = Vec::with_capacity(1 + P_DEGREE as usize);
-        let mut values = Vec::with_capacity(1 + P_DEGREE as usize);
-        let mut z_roots = Vec::with_capacity(1 + P_DEGREE as usize);
-
-        for i in 0_u32..=P_DEGREE {
-            let i_as_field_element = FieldElement1B7::from(i);
-            let y = rand::random_range(0u32..10u32);
-            values.push(FieldElement1B7::from(y));
-            points.push(i_as_field_element);
-            z_roots.push(i_as_field_element);
-        }
-
-        let p = Polynomial1B7::interpolate_from_coordinates(points, values).ok_or(anyhow!(
-            "Unable to interpolate P polynomial from coordinates"
-        ))?;
-
-        if p.degree() != P_DEGREE as usize {
-            return Err(anyhow!("Invalid degree, got {}", p.degree()));
-        }
-        let constraint_polynomial =
-            Polynomial1B7::interpolate_from_roots((0..=9).map(FieldElement1B7::from).collect());
-        let z_polynomial = Polynomial1B7::interpolate_from_roots(z_roots);
-
+    fn generate_commitments_tree(
+        p: &Polynomial1B7,
+        constraint_polynomial: &Polynomial1B7,
+        z_polynomial: &Polynomial1B7,
+    ) -> Result<MerkleTreeV2<StarkLeaf<N>>, anyhow::Error> {
         let mut values: Vec<StarkLeaf<N>> = Vec::with_capacity(TOTAL_POINTS as usize);
         for i in 0u32..TOTAL_POINTS {
             let i_as_field_element = FieldElement1B7::from(i);
@@ -162,11 +143,34 @@ mod test {
     #[test]
     #[cfg_attr(not(feature = "stark"), ignore)]
     fn test_stark_proof() {
+        // ###################
+        // ###### Setup ######
+        // ###################
+
+        let points: Vec<FieldElement1B7> = (0..(1 + P_DEGREE)).map(FieldElement1B7::from).collect();
+        let constraint_polynomial =
+            Polynomial1B7::interpolate_from_roots((0..=9).map(FieldElement1B7::from).collect());
+        let z_polynomial = Polynomial1B7::interpolate_from_roots(points.clone());
+
         // ########################
         // ###### Alice part ######
         // ########################
 
-        let commitments_tree = generate_commitments_tree().unwrap();
+        let p_values = (0..(1 + P_DEGREE))
+            .map(|_| FieldElement1B7::from(rand::random_range(0u32..10u32)))
+            .collect();
+        let p = Polynomial1B7::interpolate_from_coordinates(points, p_values)
+            .ok_or(anyhow!(
+                "Unable to interpolate P polynomial from coordinates"
+            ))
+            .unwrap();
+
+        if p.degree() != P_DEGREE as usize {
+            panic!("Invalid degree, got {}", p.degree());
+        }
+
+        let commitments_tree =
+            generate_commitments_tree(&p, &constraint_polynomial, &z_polynomial).unwrap();
         let proofs = derive_proofs(&commitments_tree).unwrap();
 
         // ######################
@@ -179,6 +183,12 @@ mod test {
             assert_eq!(point, expected_point);
             if point.inner() <= P_DEGREE {
                 assert_eq!(value_with_proof.value.cp, 0.into());
+            } else {
+                let z_eval = z_polynomial.evaluate(*point);
+                assert_eq!(
+                    z_eval.mul(&value_with_proof.value.d),
+                    value_with_proof.value.cp
+                );
             }
             let formatted_proof: Vec<_> = value_with_proof
                 .proof
