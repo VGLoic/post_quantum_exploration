@@ -64,7 +64,7 @@
  * In terms of *soundness*, i.e. if Alice has an invalid P, what is the probability that she get caught?
  * C is actually a degree 10 polynomials, C(P) is at least a degree 1_000_000 polynomial.
  * Note: The article claims that P is a 1_000_000 degree polynomial, so that C(P) is a 10_000_000 degree polynomial, I don't understand the saying on the degree of P, maybe it's just an assumed fact for the problem? So I stay with 1_000_000 because this is the degree of Z.
- * Two degree N polynomials will agree on at most N points.
+ * Two different degree N polynomials will agree on at most N points.
  * Therefore, if Alice forges a different polynomials, she will have at most 1_000_000 similar points, it leaves 999_000_000 different points.
  * The probability that Bob picks a valid point is therefore 1/990 ~ 10^(-2). Now the probability for 16 valid points is 10^(-32).
  *
