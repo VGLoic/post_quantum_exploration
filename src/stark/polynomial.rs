@@ -34,8 +34,8 @@ impl<const N: u32> Polynomial<N> {
         let mut coefficients = Vec::with_capacity(roots.len());
         coefficients.push(PrimeFieldElement::from(1));
         for (i, x) in roots.iter().enumerate() {
-            if i % 10_000 == 0 {
-                println!("[interpolation from roots] reached a 10_000");
+            if i > 0 && i % 10_000 == 0 {
+                println!("[interpolation from roots] reached a 10_000 step");
             }
             let x_neg = x.neg();
             // Handle leading coefficient
