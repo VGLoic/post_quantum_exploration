@@ -172,6 +172,7 @@
  *
  * The verifier will then ask a bunch of rows and columns to the prover, this process can be made non interactive using Fiat-Shamir.
  * For each row or column, the verifier will ask for >1000, e.g. 1010, points, this set MUST contain the point on the diagonal.
+ * As I understand, the verifier asks the row associated to the column, in order to ensure that the point on the diagonal is on both sides.
  *
  * The prover will give all the evaluations with the merkle proofs.
  *
@@ -179,13 +180,12 @@
  *  - verify the Merkle proofs, i.e. the evaluations are consistent with this commitment,
  *  - verify for each row or column that the values lie on a <1000 degree polynomial.
  *
- * With this the verifier can be convinced that:
+ * With this, the verifier can be convinced that:
  *  - most rows contain values that fit in <1000 degree polynomial,
  *  - most columns contain values that fit in <1000 degree polynomial,
  *  - most of the diagonal points belong to these <1000 degree polynomials.
  *
  * As a consequence, the verifier is convinced that the diagonal points correspond to a degree <1_000_000 polynomial.
- *
  *
  * Some numbers about the protocol:
  * If we pick 30 rows and columns, we get 60 * 1_010 = 60_600 points, this respects the sublinearity requirement as it is less than D = 1_000_000. It is still a lot.
@@ -219,20 +219,24 @@
  * The square on which we evaluate g(x, y) is then shrinked from 10^18 to 1_000_000_000 x 1_000_006 = 10^15 values, we gain a factor 1_000 yeay!
  *
  * Now let us do an additional tricky trick observation:
- * We have the original data set of N = 1_000_000_000 points.
+ * Let us consider the diagonal data set of N = 1_000_000_000 points.
  * Let us consider two points with the same image under x -> x^1_000, x_a and x_b, i.e. x_a^1000 = x_b^1000 = m. We have f(a) = g(a, a^1_000) = g(a, m) and f(b) = g(b, b^1_000) = g(b, m).
- * As a consequence f(a) and f(b) are on the same row in the square. *There are actually 1_000 points on each rows from the original data set.*
+ * As a consequence f(a) and f(b) are on the same row in the square. *There are actually 1_000 points on each rows from the diagonal points.*
  *
- * It simplifies the work done by the prover: it will only evaluate and commit one column, i.e. 1_000_0006 values.
+ * In the previous situation, we were on a square so we were unable to form rows from the diagonal points.
+ * In the current situation, we have a rectangle, so the diagonal points can be used in order to derive rows, hence we don't need to commit to rows.
  *
- * The verifier will then take a bunch of rows, derive from the original data the 1_000 points that describe them. It can then interpolate to obtain the <1000 degree polynomial of each row.
+ * So from the diagonal data, one can sample 1000 points on any row.
+ * In addition, the prover will only evaluate and commit one column, i.e. 1_000_0006 values.
+ * I don't get why we can limit to only one column, more precisely, I don't get we can do this now but not before.
+ *
+ * The verifier will select some rows, derive from the diagonal the 1_000 points that describe them. It can then interpolate to obtain the <1000 degree polynomial of each row.
  * The verifier can then check that the associated value on the column match the interpolation of a row.
  * The verifier also needs to check that the column properly correspond to a <1000 degree polynomial.
  *
- * The article specifies that the prover complexity is now 10^9, I got 10^6 from the single column evaluation, we would need to add the complexity of the evaluation but I don't think it takes it into account in the article. maybe yes actually?
- * Let's think about that.
+ * The prover complexity is therefore 10^9, the one of the diagonal
  *
- * On the verifier side, there is less interpolation because it receives only one column. However it has to do some work on the original data set.
+ * On the verifier side, there is less interpolation because it receives only one diagonal and one column. However it has to do some work on the diagonal data set.
  *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * Improving the verifier complexity
