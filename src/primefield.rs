@@ -33,6 +33,10 @@ impl<const MODULUS: u32> PrimeFieldElement<MODULUS> {
     pub fn inv(&self) -> Option<Self> {
         modulo_inv(self.0, MODULUS).map(Self)
     }
+
+    pub fn exp(&self, e: u32) -> Self {
+        Self(modulo_exp(self.0, e, MODULUS))
+    }
 }
 
 impl<const MODULUS: u32> std::fmt::Display for PrimeFieldElement<MODULUS> {

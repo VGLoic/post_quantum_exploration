@@ -50,6 +50,21 @@ pub fn modulo_inv(a: u32, n: u32) -> Option<u32> {
     Some(modulo(t, n))
 }
 
+pub fn modulo_exp(a: u32, e: u32, n: u32) -> u32 {
+    let mut result = 1;
+    let mut base = a;
+    let mut exponent = e;
+    while exponent > 0 {
+        if exponent % 2 == 1 {
+            result = modulo_mul(result, base, n);
+        }
+        exponent >>= 1;
+        base = modulo_mul(base, base, n);
+    }
+
+    result
+}
+
 #[allow(dead_code)]
 /// Return greatest common divisor of two integers
 ///
@@ -145,5 +160,25 @@ mod modular_arithmetic_tests {
         let a = rand::random();
         let inv = modulo_inv(a, n).unwrap();
         assert_eq!(modulo_mul(a, inv, n), 1);
+    }
+
+    #[test]
+    fn test_modulo_exp_basic() {
+        // 2^3 mod 5 = 8 mod 5 = 3
+        assert_eq!(modulo_exp(2, 3, 5), 3);
+        // 5^0 mod 7 = 1
+        assert_eq!(modulo_exp(5, 0, 7), 1);
+        // 0^5 mod 7 = 0
+        assert_eq!(modulo_exp(0, 5, 7), 0);
+        // 7^1 mod 13 = 7
+        assert_eq!(modulo_exp(7, 1, 13), 7);
+        // 3^4 mod 5 = 81 mod 5 = 1
+        assert_eq!(modulo_exp(3, 4, 5), 1);
+    }
+
+    #[test]
+    fn test_modulo_exp_large_exponent() {
+        // 2^30 mod 1009 = 1073741824 = 1064164 * 1009 + 348
+        assert_eq!(modulo_exp(2, 30, 1009), 348);
     }
 }
