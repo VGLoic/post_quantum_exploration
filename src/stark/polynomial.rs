@@ -138,6 +138,14 @@ impl<const N: u32> Polynomial<N> {
         Self::new(coefficients)
     }
 
+    pub fn mul_by_scalar(&self, a: PrimeFieldElement<N>) -> Self {
+        let mut coefficients: Vec<PrimeFieldElement<N>> = Vec::with_capacity(1 + self.degree());
+        for c in &self.coefficients {
+            coefficients.push(c.mul(&a));
+        }
+        Self::new(coefficients)
+    }
+
     pub fn div(&self, other: &Self) -> Option<(Self, Self)> {
         if other.is_zero() {
             return None;
@@ -186,6 +194,31 @@ impl<const N: u32> Polynomial<N> {
         let mut power_of_x_evaluated = PrimeFieldElement::from(1);
         for c in self.coefficients.iter().skip(1) {
             power_of_x_evaluated = power_of_x_evaluated.mul(&x);
+            evaluation = evaluation.add(&c.mul(&power_of_x_evaluated));
+        }
+        evaluation
+    }
+
+    pub fn evaluate_as_binomial(
+        &self,
+        x: PrimeFieldElement<N>,
+        y: PrimeFieldElement<N>,
+        exponent: u32,
+    ) -> PrimeFieldElement<N> {
+        let mut evaluation = self
+            .coefficients
+            .first()
+            .copied()
+            .unwrap_or(PrimeFieldElement::from(0));
+        let mut base = PrimeFieldElement::<N>::from(1);
+        let mut power_of_x_evaluated = PrimeFieldElement::<N>::from(1);
+        for (i, c) in self.coefficients.iter().skip(1).enumerate() {
+            if (i + 1) % (exponent as usize) == 0 {
+                base = base.mul(&y);
+                power_of_x_evaluated = base;
+            } else {
+                power_of_x_evaluated = power_of_x_evaluated.mul(&x);
+            }
             evaluation = evaluation.add(&c.mul(&power_of_x_evaluated));
         }
         evaluation
@@ -334,6 +367,17 @@ mod polynomial_tests {
         assert_eq!(p.evaluate(0.into()), 2.into());
         assert_eq!(p.evaluate(1.into()), 4.into());
         assert_eq!(p.evaluate(4.into()), 58.into());
+    }
+
+    #[test]
+    fn test_evaluation_as_binomial() {
+        // P(x) = x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+        // with y = x^3 -> G(x, y) = y^2 + yx^2 + yx + y + x^2 + x + 1
+        let p = Polynomial1B7::new([1, 1, 1, 1, 1, 1, 1].map(PrimeFieldElement::from).to_vec()); // x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+        assert_eq!(p.evaluate_as_binomial(1.into(), 2.into(), 3), 13.into()); // 4 + 2 + 2 + 2 + 1 + 1 + 1 
+        assert_eq!(p.evaluate_as_binomial(3.into(), 2.into(), 3), 43.into()); // 4 + 18 + 6 + 2 + 9 + 3 + 1
+        assert_eq!(p.evaluate_as_binomial(2.into(), 0.into(), 3), 7.into());
+        assert_eq!(p.evaluate_as_binomial(1.into(), 1.into(), 3), 7.into());
     }
 
     #[test]

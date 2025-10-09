@@ -66,7 +66,6 @@ where
     root: BranchV2<T>,
 }
 
-#[allow(dead_code)]
 pub struct ValueWithProof<'a, T>
 where
     T: Clone + Default + AsRef<[u8]>,
@@ -79,12 +78,10 @@ impl<T> MerkleTreeV2<T>
 where
     T: Clone + Default + AsRef<[u8]>,
 {
-    #[allow(dead_code)]
     pub fn root_hash(&self) -> &[u8; 32] {
         &self.root.hash
     }
 
-    #[allow(dead_code)]
     pub fn get<'a>(&'a self, selector: &[bool]) -> Result<ValueWithProof<'a, T>, anyhow::Error> {
         if selector.len() != self.depth.into() {
             return Err(anyhow!(
@@ -116,6 +113,39 @@ where
                         value: &l.value,
                         proof,
                     });
+                }
+            };
+        }
+
+        Err(anyhow!(
+            "unexpected end of direction selector without leaves"
+        ))
+    }
+
+    pub fn get_without_proof<'a>(&'a self, selector: &[bool]) -> Result<&'a T, anyhow::Error> {
+        if selector.len() != self.depth.into() {
+            return Err(anyhow!(
+                "invalid selector, expected of length: {}, got length {}",
+                self.depth,
+                selector.len()
+            ));
+        }
+        let mut current_branch: &BranchV2<T> = &self.root;
+        for direction in selector {
+            // If direction is true, we register the hash of the left node in the proof and we take a look at the right node
+
+            let next_node = if *direction {
+                &current_branch.right
+            } else {
+                // If direction is false, we register the hash of the right node in the proof and we take a look at the left node
+                &current_branch.left
+            };
+            match &**next_node {
+                NodeV2::Branch(b) => {
+                    current_branch = b;
+                }
+                NodeV2::Leaf(l) => {
+                    return Ok(&l.value);
                 }
             };
         }

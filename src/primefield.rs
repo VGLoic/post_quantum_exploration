@@ -1,6 +1,6 @@
 use crate::modular_arithmetic::*;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
 pub struct PrimeFieldElement<const MODULUS: u32>(u32);
 
 impl<const MODULUS: u32> From<u32> for PrimeFieldElement<MODULUS> {
