@@ -366,13 +366,30 @@ mod test {
 
         assert_eq!(expected_x_c, x_c);
 
+        // We check that the original commitment satisfies the relation C(P(x)) = D(x)Z(x)
+        for four_root_original_commitment in stark_proof.original.iter() {
+            for original_commitment in four_root_original_commitment {
+                let cp_eval = constraint_polynomial.evaluate(original_commitment.evaluation.p);
+                if original_commitment.point.inner() < P_MAX_DEGREE {
+                    // Below max degree, cp must be 0
+                    assert_eq!(cp_eval, FieldElementRG::from(0));
+                } else {
+                    // Else, cp must be equal to z * d
+                    let z_eval = PolynomialRG::interpolate_and_evaluate_zpoly(
+                        0..P_MAX_DEGREE,
+                        &original_commitment.point,
+                    );
+                    assert_eq!(z_eval.mul(&original_commitment.evaluation.d), cp_eval);
+                }
+            }
+        }
+
         /*
          * For the diagonal:
          *  - the i-th point must match the expected one from the prf,
          *  - in each 4-root:
          *      - the modular exponentiation by 4 must give the same result,
          *      - the merkle proof must be valid with respect to diagonal commitments,
-         *      - the value of cp and d must be consistent
          *  - the 4 values plus the associated column value must form a degree <4 polynomial
          */
         for (i, four_root_original_commitment) in stark_proof.original.iter().enumerate() {
@@ -398,19 +415,6 @@ mod test {
                     )
                     .is_ok()
                 );
-
-                let cp_eval = constraint_polynomial.evaluate(original_commitment.evaluation.p);
-                if original_commitment.point.inner() < P_MAX_DEGREE {
-                    // Below max degree, cp must be 0
-                    assert_eq!(cp_eval, FieldElementRG::from(0));
-                } else {
-                    // Else, cp must be equal to z * d
-                    let z_eval = PolynomialRG::interpolate_and_evaluate_zpoly(
-                        0..P_MAX_DEGREE,
-                        &original_commitment.point,
-                    );
-                    assert_eq!(z_eval.mul(&original_commitment.evaluation.d), cp_eval);
-                }
                 row_points.push(original_commitment.point);
                 row_values.push(original_commitment.evaluation.p);
             }
