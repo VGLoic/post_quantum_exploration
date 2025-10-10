@@ -261,7 +261,7 @@ mod test {
             panic!("Invalid degree, got {}", p.degree());
         }
 
-        // We generate commitments for the polynomial over 0..TOTAL_POINTS
+        // We evaluate the polynomial over 0..TOTAL_POINTS
         let mut original_evaluations: Vec<OriginalEvaluation<N>> =
             Vec::with_capacity(TOTAL_POINTS as usize);
         for i in 0u32..TOTAL_POINTS {
@@ -309,13 +309,13 @@ mod test {
         // - 300 random roots with their column evaluations and commitments in order to allow the verifier to low degree test the column at degree 250,
         // - 16 roots with their powers and their evaluations and commitments in order to generate 16 rows with 4 points each, roots must be chosen among the 300 random roots for the column in order to check consistence of the rows.
 
-        let column_points = pseudo_random_select_column_points(
+        let selected_column_points = pseudo_random_select_column_points(
             original_commitments_tree.root_hash(),
             &root_4_groups,
         );
 
         let mut original_commitments: Vec<FourRootOriginalCommitments<N>> = vec![];
-        for (root_index, _) in column_points.iter().take(16) {
+        for (root_index, _) in selected_column_points.iter().take(16) {
             let root_group = &root_4_groups[*root_index as usize];
             let mut four_root_original_commitments: Vec<OriginalCommitment<N>> = vec![];
             for root in root_group.iter() {
@@ -332,7 +332,7 @@ mod test {
         }
 
         let mut column_commitments: Vec<ColumnCommitment<N>> = vec![];
-        for (root_index, root) in column_points {
+        for (root_index, root) in selected_column_points {
             let point_index_as_fe = FieldElementRG::from(root_index);
             let selected = column_commitments_tree
                 .get(&point_to_selector(point_index_as_fe, 19))
