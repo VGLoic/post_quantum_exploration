@@ -6,17 +6,17 @@ use crate::primefield::PrimeFieldElement;
 
 #[derive(Clone, Debug)]
 pub struct StarkLeaf<const N: u32> {
-    pub cp: PrimeFieldElement<N>,
+    pub p: PrimeFieldElement<N>,
     pub d: PrimeFieldElement<N>,
     rep: [u8; 8],
 }
 
 impl<const N: u32> StarkLeaf<N> {
-    pub fn new(cp: PrimeFieldElement<N>, d: PrimeFieldElement<N>) -> Self {
+    pub fn new(p: PrimeFieldElement<N>, d: PrimeFieldElement<N>) -> Self {
         let mut rep = [0u8; 8];
-        rep[0..4].clone_from_slice(&cp.inner().to_le_bytes());
+        rep[0..4].clone_from_slice(&p.inner().to_le_bytes());
         rep[4..].clone_from_slice(&d.inner().to_le_bytes());
-        Self { cp, d, rep }
+        Self { p, d, rep }
     }
 }
 
@@ -29,7 +29,7 @@ impl<const N: u32> AsRef<[u8]> for StarkLeaf<N> {
 impl<const N: u32> Default for StarkLeaf<N> {
     fn default() -> Self {
         Self {
-            cp: 0.into(),
+            p: 0.into(),
             d: 0.into(),
             rep: [0u8; 8],
         }
@@ -74,7 +74,7 @@ mod test {
 
     use super::*;
     use crate::{
-        merkletree_v2::{MerkleTreeV2, ValueWithProof, verify_proof},
+        merkletree_v2::{MerkleTreeV2, verify_proof},
         stark::polynomial::Polynomial,
     };
 
@@ -86,37 +86,6 @@ mod test {
 
     type FieldElementRG = PrimeFieldElement<N>;
     type PolynomialRG = Polynomial<N>;
-
-    fn generate_commitments_tree(
-        p: &PolynomialRG,
-        constraint_polynomial: &PolynomialRG,
-        constrained_points: &[FieldElementRG],
-    ) -> Result<MerkleTreeV2<StarkLeaf<N>>, anyhow::Error> {
-        let mut values: Vec<StarkLeaf<N>> = Vec::with_capacity(TOTAL_POINTS as usize);
-        for i in 0u32..TOTAL_POINTS {
-            let i_as_field_element = FieldElementRG::from(i);
-
-            let p_eval = p.evaluate(i_as_field_element);
-            let cp_eval = constraint_polynomial.evaluate(p_eval);
-            let d_eval = if i <= P_MAX_DEGREE {
-                0.into()
-            } else {
-                let z_eval = PolynomialRG::interpolate_and_evaluate_from_roots_slice(
-                    constrained_points,
-                    &i_as_field_element,
-                );
-                cp_eval.mul(
-                    &z_eval
-                        .inv()
-                        .ok_or(anyhow!("unable to find inverse of Z evaluation"))?,
-                )
-            };
-
-            values.push(StarkLeaf::new(cp_eval, d_eval));
-        }
-
-        MerkleTreeV2::new(20, &values)
-    }
 
     fn point_to_selector(point: PrimeFieldElement<N>, depth: usize) -> Vec<bool> {
         let mut a = point.inner();
@@ -138,33 +107,6 @@ mod test {
         selector.reverse();
 
         selector
-    }
-
-    fn derive_proofs<'a>(
-        tree: &'a MerkleTreeV2<StarkLeaf<N>>,
-        points: Vec<PrimeFieldElement<N>>,
-    ) -> Result<Vec<(PrimeFieldElement<N>, ValueWithProof<'a, StarkLeaf<N>>)>, anyhow::Error> {
-        let mut proofs: Vec<(PrimeFieldElement<N>, ValueWithProof<StarkLeaf<N>>)> = vec![];
-        for point in points {
-            let selector = tree.get(&point_to_selector(point, 20))?;
-            proofs.push((point, selector))
-        }
-        Ok(proofs)
-    }
-
-    fn pseudo_random_select_points(root: &[u8; 32], modulus: u32) -> Vec<PrimeFieldElement<N>> {
-        let mut points = Vec::with_capacity(16);
-        for chunk in root.chunks(2) {
-            let digest = Sha3_256::digest(chunk);
-            let mut le_bytes = [0u8; 4];
-            le_bytes.clone_from_slice(&digest[0..4]);
-            let mut point_as_u32 = u32::from_le_bytes(le_bytes) % modulus;
-            if point_as_u32 == 0 {
-                point_as_u32 = 1;
-            }
-            points.push(PrimeFieldElement::<N>::from(point_as_u32));
-        }
-        points
     }
 
     fn pseudo_random_select_column_point(root: &[u8; 32], modulus: u32) -> PrimeFieldElement<N> {
@@ -192,17 +134,16 @@ mod test {
 
                 let root_4_group_index =
                     u32::from_le_bytes(le_bytes) % (root_4_groups.len() as u32);
-                println!("selecting: {root_4_group_index}");
                 if !selected_indices.contains(&root_4_group_index) {
                     let root_4_group = root_4_groups[root_4_group_index as usize];
-                    if root_4_group.iter().all(|el| el.inner() < TOTAL_POINTS) {
+                    if root_4_group
+                        .iter()
+                        // REMIND ME: I added the `el.inner() > P_MAX_DEGREE` because I don't handle zero in lagrange interpolation yet
+                        .all(|el| el.inner() < TOTAL_POINTS && el.inner() > P_MAX_DEGREE)
+                    {
                         points.push((root_4_group_index, root_4_group[0]));
                         selected_indices.insert(root_4_group_index);
-                    } else {
-                        println!("Invalid values: {root_4_group:?}\n");
                     }
-                } else {
-                    println!("Already selected\n")
                 }
             }
             counter += 1;
@@ -270,7 +211,7 @@ mod test {
         // Array of (point, evaluation, proof)
         pub column: Vec<(FieldElementRG, FieldElementRG, Vec<(bool, [u8; 32])>)>,
         pub diagonal_root: [u8; 32],
-        // Arry of 4-tuple ([root, cp_root_eval d_root_eval, proof]) with the 4 4-roots
+        // Arry of 4-tuple ([root, p_root_eval d_root_eval, proof]) with the 4 4-roots
         pub diagonal: Vec<
             [(
                 FieldElementRG,
@@ -309,8 +250,31 @@ mod test {
         }
 
         // We generate commitments for the polynomial over 0..TOTAL_POINTS
-        let commitments_tree =
-            generate_commitments_tree(&p, &constraint_polynomial, &constrained_points).unwrap();
+        let mut p_values: Vec<StarkLeaf<N>> = Vec::with_capacity(TOTAL_POINTS as usize);
+        for i in 0u32..TOTAL_POINTS {
+            let i_as_field_element = FieldElementRG::from(i);
+
+            let p_eval = p.evaluate(i_as_field_element);
+            let cp_eval = constraint_polynomial.evaluate(p_eval);
+            let d_eval = if i <= P_MAX_DEGREE {
+                0.into()
+            } else {
+                let z_eval = PolynomialRG::interpolate_and_evaluate_from_roots_slice(
+                    &constrained_points,
+                    &i_as_field_element,
+                );
+                cp_eval.mul(
+                    &z_eval
+                        .inv()
+                        .ok_or(anyhow!("unable to find inverse of Z evaluation"))
+                        .unwrap(),
+                )
+            };
+
+            p_values.push(StarkLeaf::new(p_eval, d_eval));
+        }
+
+        let commitments_tree = MerkleTreeV2::new(20, &p_values).unwrap();
 
         // We pseudo randomly generate a point for the column evaluation
         let x_c = pseudo_random_select_column_point(commitments_tree.root_hash(), TOTAL_POINTS);
@@ -354,7 +318,7 @@ mod test {
                     .collect();
                 group_proofs.push((
                     *root,
-                    selected_value.value.cp,
+                    selected_value.value.p,
                     selected_value.value.d,
                     formatted_proof,
                 ));
@@ -371,54 +335,101 @@ mod test {
                 .unwrap();
 
             let formatted_proof = leaf.proof.iter().map(|el| (el.0, *el.1)).collect();
-            column_proofs.push((root, leaf.value.v, formatted_proof));
+            column_proofs.push((root.exp(4), leaf.value.v, formatted_proof));
         }
 
-        let _stark_proof = StarkProof {
+        let stark_proof = StarkProof {
             column_root: *column_commitment_tree.root_hash(),
             column: column_proofs,
             diagonal_root: *commitments_tree.root_hash(),
             diagonal: diagonal_proofs,
         };
 
-        // DEPRECATED BELOW
-
-        let selected_points =
-            pseudo_random_select_points(commitments_tree.root_hash(), TOTAL_POINTS);
-        let proofs = derive_proofs(&commitments_tree, selected_points).unwrap();
-
         // ######################
         // ###### Bob part ######
         // ######################
 
-        let expected_points =
-            pseudo_random_select_points(commitments_tree.root_hash(), TOTAL_POINTS);
+        let root_4_groups = group_roots_4(N - 1);
+        let expected_x_c =
+            pseudo_random_select_column_point(&stark_proof.diagonal_root, TOTAL_POINTS);
+        let expected_column_points =
+            pseudo_random_select_column_points(&stark_proof.diagonal_root, &root_4_groups);
 
-        for ((point, value_with_proof), expected_point) in proofs.iter().zip(&expected_points) {
-            assert_eq!(point, expected_point);
-            if point.inner() < P_MAX_DEGREE {
-                assert_eq!(value_with_proof.value.cp, 0.into());
-            } else {
-                let z_eval = PolynomialRG::interpolate_and_evaluate_from_roots_slice(
-                    &constrained_points,
-                    point,
+        assert_eq!(expected_x_c, x_c);
+
+        /*
+         * For the diagonal:
+         *  - the i-th point must match the expected one from the prf,
+         *  - in each 4-root:
+         *      - the modular exponentiation by 4 must give the same result,
+         *      - the merkle proof must be valid with respect to diagonal commitments,
+         *      - the value of cp and d must be consistent
+         *  - the 4 values plus the associated column value must form a degree <4 polynomial
+         */
+        for (i, diag_proof) in stark_proof.diagonal.iter().enumerate() {
+            // The i-th proof must be done with the i-th column root
+            assert_eq!(diag_proof[0].0, expected_column_points[i].1);
+            let expected_exp_4 = diag_proof[0].0.exp(4);
+            let mut row_points = vec![];
+            let mut row_values = vec![];
+            for (point, p_eval, d_eval, merkle_proof) in diag_proof {
+                // Each sub point must give the same result under modular exp of 4
+                assert_eq!(point.exp(4), expected_exp_4);
+                // Merkle proof must be valid with respect to diagonal commitments
+                assert!(
+                    verify_proof(
+                        &stark_proof.diagonal_root,
+                        StarkLeaf::new(*p_eval, *d_eval),
+                        merkle_proof
+                    )
+                    .is_ok()
                 );
-                assert_eq!(
-                    z_eval.mul(&value_with_proof.value.d),
-                    value_with_proof.value.cp
-                );
+                let cp_eval = constraint_polynomial.evaluate(*p_eval);
+                if point.inner() < P_MAX_DEGREE {
+                    // Below max degree, cp must be 0
+                    assert_eq!(cp_eval, FieldElementRG::from(0));
+                } else {
+                    // Else, cp must be equal to z * d
+                    let z_eval = PolynomialRG::interpolate_and_evaluate_from_roots_slice(
+                        &constrained_points,
+                        point,
+                    );
+                    assert_eq!(z_eval.mul(d_eval), cp_eval);
+                }
+                row_points.push(*point);
+                row_values.push(*p_eval);
             }
-            let formatted_proof: Vec<_> = value_with_proof
-                .proof
-                .iter()
-                .map(|p| (p.0, p.1.to_owned()))
-                .collect();
-            verify_proof(
-                commitments_tree.root_hash(),
-                value_with_proof.value,
-                &formatted_proof,
-            )
-            .expect("invalid proof");
+
+            let matching_column_proof = &stark_proof.column[i];
+            assert_eq!(matching_column_proof.0, expected_exp_4);
+
+            row_points.push(expected_x_c);
+            row_values.push(matching_column_proof.1);
+            let interpolated_polynomial =
+                PolynomialRG::interpolate_from_coordinates(row_points, row_values).unwrap();
+            assert!(interpolated_polynomial.degree() < 4);
         }
+
+        let mut interpolation_points = vec![];
+        let mut interpolation_values = vec![];
+        for (i, (point, column_evaluation, merkle_proof)) in stark_proof.column.iter().enumerate() {
+            // The i-th proof must be done with the i-th column root
+            assert_eq!(*point, expected_column_points[i].1.exp(4));
+            // Merkle proof must be valid with respect to column commitments
+            assert!(
+                verify_proof(
+                    &stark_proof.column_root,
+                    StarkLeaf2::new(*column_evaluation),
+                    merkle_proof
+                )
+                .is_ok()
+            );
+            interpolation_points.push(*point);
+            interpolation_values.push(*column_evaluation);
+        }
+        let column_interpolated_polynomial =
+            Polynomial::interpolate_from_coordinates(interpolation_points, interpolation_values)
+                .unwrap();
+        assert!(column_interpolated_polynomial.degree() < 250);
     }
 }
