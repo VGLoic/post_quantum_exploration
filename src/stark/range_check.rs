@@ -231,10 +231,10 @@ mod test {
     type FourRootOriginalCommitments<const N: u32> = [OriginalCommitment<N>; 4];
 
     struct StarkProof<const N: u32> {
-        pub column_root: [u8; 32],
-        pub column: Vec<ColumnCommitment<N>>,
         pub original_commitment_root: [u8; 32],
         pub original: Vec<FourRootOriginalCommitments<N>>,
+        pub column_root: [u8; 32],
+        pub column: Vec<ColumnCommitment<N>>,
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod test {
         }
 
         // We generate commitments for the polynomial over 0..TOTAL_POINTS
-        let mut original_commitments: Vec<OriginalEvaluation<N>> =
+        let mut original_evaluations: Vec<OriginalEvaluation<N>> =
             Vec::with_capacity(TOTAL_POINTS as usize);
         for i in 0u32..TOTAL_POINTS {
             let i_as_field_element = FieldElementRG::from(i);
@@ -284,10 +284,10 @@ mod test {
                 )
             };
 
-            original_commitments.push(OriginalEvaluation::new(p_eval, d_eval));
+            original_evaluations.push(OriginalEvaluation::new(p_eval, d_eval));
         }
 
-        let original_commitments_tree = MerkleTreeV2::new(20, &original_commitments).unwrap();
+        let original_commitments_tree = MerkleTreeV2::new(20, &original_evaluations).unwrap();
 
         // We pseudo randomly generate a point for the column evaluation
         let x_c =
@@ -304,18 +304,18 @@ mod test {
         let column_commitments_tree = MerkleTreeV2::new(19, &column_evaluations).unwrap();
 
         // Now we can generate the proof:
-        // - diagonal commitments root hash,
+        // - original commitments / diagonal root hash,
         // - column commitments root hash,
         // - 300 random roots with their column evaluations and commitments in order to allow the verifier to low degree test the column at degree 250,
         // - 16 roots with their powers and their evaluations and commitments in order to generate 16 rows with 4 points each, roots must be chosen among the 300 random roots for the column in order to check consistence of the rows.
 
-        let column_poins = pseudo_random_select_column_points(
+        let column_points = pseudo_random_select_column_points(
             original_commitments_tree.root_hash(),
             &root_4_groups,
         );
 
         let mut original_commitments: Vec<FourRootOriginalCommitments<N>> = vec![];
-        for (root_index, _) in column_poins.iter().take(16) {
+        for (root_index, _) in column_points.iter().take(16) {
             let root_group = &root_4_groups[*root_index as usize];
             let mut four_root_original_commitments: Vec<OriginalCommitment<N>> = vec![];
             for root in root_group.iter() {
@@ -332,7 +332,7 @@ mod test {
         }
 
         let mut column_commitments: Vec<ColumnCommitment<N>> = vec![];
-        for (root_index, root) in column_poins {
+        for (root_index, root) in column_points {
             let point_index_as_fe = FieldElementRG::from(root_index);
             let selected = column_commitments_tree
                 .get(&point_to_selector(point_index_as_fe, 19))
