@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use post_quantum_exploration::{
     merkletree_v2::MerkleTreeV2,
     primefield::PrimeFieldElement,
-    stark::{polynomial::Polynomial, range_check::StarkLeaf},
+    stark::{polynomial::Polynomial, range_check::OriginalEvaluation},
 };
 
 const N: u32 = 1_000_000_007;
@@ -46,7 +46,7 @@ fn generate_proof() -> Result<u32, anyhow::Error> {
     let z_polynomial = Polynomial1B7::interpolate_from_roots(z_roots);
     println!("Z polynomial has been interpolated");
 
-    let mut values: Vec<StarkLeaf<N>> = Vec::with_capacity(1 + Z_DEGREE);
+    let mut values: Vec<OriginalEvaluation<N>> = Vec::with_capacity(1 + Z_DEGREE);
     for i in 0u32..TOTAL_POINTS {
         if i > 0 && i % 100_000 == 0 {
             println!("evaluation reached a 100_000 step");
@@ -66,7 +66,7 @@ fn generate_proof() -> Result<u32, anyhow::Error> {
             )
         };
 
-        values.push(StarkLeaf::new(cp_eval, d_eval));
+        values.push(OriginalEvaluation::new(cp_eval, d_eval));
     }
 
     let _tree = MerkleTreeV2::new(20, &values)?;

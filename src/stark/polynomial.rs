@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::primefield::PrimeFieldElement;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -27,6 +29,7 @@ impl<const N: u32> Polynomial<N> {
     pub fn interpolate_from_roots(roots: Vec<PrimeFieldElement<N>>) -> Self {
         Self::interpolate_from_roots_slice(&roots)
     }
+
     pub fn interpolate_from_roots_slice(roots: &[PrimeFieldElement<N>]) -> Self {
         if roots.is_empty() {
             return Self::default();
@@ -51,18 +54,19 @@ impl<const N: u32> Polynomial<N> {
         Self::new(coefficients)
     }
 
-    pub fn interpolate_and_evaluate_from_roots_slice(
-        roots: &[PrimeFieldElement<N>],
+    pub fn interpolate_and_evaluate_zpoly(
+        range: Range<u32>,
         x: &PrimeFieldElement<N>,
     ) -> PrimeFieldElement<N> {
-        if roots.is_empty() {
+        if range.is_empty() {
             return 0.into();
         }
 
         let mut result = PrimeFieldElement::<N>::from(1);
 
-        for root in roots {
-            result = result.mul(&x.add(&root.neg()));
+        for root in range {
+            let neg_root = PrimeFieldElement::<N>::from(N - root);
+            result = result.mul(&x.add(&neg_root));
         }
 
         result
@@ -287,17 +291,15 @@ mod polynomial_tests {
     }
 
     #[test]
-    fn test_interpolation_and_evaluation_from_roots() {
-        let number_of_points = rand::random_range(2..=100);
-        let points: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
-            .map(|_| {
-                let v: u32 = rand::random();
-                PrimeFieldElement::from(v)
-            })
-            .collect();
-        for point in points.iter() {
+    fn test_interpolation_and_evaluation_zpoly() {
+        let max: u32 = rand::random();
+        let modulus_for_test_efficiency = 10_000;
+        for point in 0..(max % modulus_for_test_efficiency) {
             assert_eq!(
-                Polynomial1B7::interpolate_and_evaluate_from_roots_slice(&points, point),
+                Polynomial1B7::interpolate_and_evaluate_zpoly(
+                    0..(max % modulus_for_test_efficiency),
+                    &PrimeFieldElement::<1_000_000_007>::from(point)
+                ),
                 0.into()
             );
         }

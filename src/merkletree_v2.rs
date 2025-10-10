@@ -66,12 +66,14 @@ where
     root: BranchV2<T>,
 }
 
+pub type MerkleProof = Vec<(bool, [u8; 32])>;
+
 pub struct ValueWithProof<'a, T>
 where
     T: Clone + Default + AsRef<[u8]>,
 {
     pub value: &'a T,
-    pub proof: Vec<(bool, &'a [u8; 32])>,
+    pub proof: MerkleProof,
 }
 
 impl<T> MerkleTreeV2<T>
@@ -91,16 +93,16 @@ where
             ));
         }
         let mut current_branch: &BranchV2<T> = &self.root;
-        let mut proof: Vec<(bool, &'a [u8; 32])> = vec![];
+        let mut proof: Vec<(bool, [u8; 32])> = vec![];
         for direction in selector {
             // If direction is true, we register the hash of the left node in the proof and we take a look at the right node
 
             let next_node = if *direction {
-                proof.push((false, current_branch.left.hash()));
+                proof.push((false, current_branch.left.hash().to_owned()));
                 &current_branch.right
             } else {
                 // If direction is false, we register the hash of the right node in the proof and we take a look at the left node
-                proof.push((true, current_branch.right.hash()));
+                proof.push((true, current_branch.right.hash().to_owned()));
                 &current_branch.left
             };
             match &**next_node {
@@ -113,39 +115,6 @@ where
                         value: &l.value,
                         proof,
                     });
-                }
-            };
-        }
-
-        Err(anyhow!(
-            "unexpected end of direction selector without leaves"
-        ))
-    }
-
-    pub fn get_without_proof<'a>(&'a self, selector: &[bool]) -> Result<&'a T, anyhow::Error> {
-        if selector.len() != self.depth.into() {
-            return Err(anyhow!(
-                "invalid selector, expected of length: {}, got length {}",
-                self.depth,
-                selector.len()
-            ));
-        }
-        let mut current_branch: &BranchV2<T> = &self.root;
-        for direction in selector {
-            // If direction is true, we register the hash of the left node in the proof and we take a look at the right node
-
-            let next_node = if *direction {
-                &current_branch.right
-            } else {
-                // If direction is false, we register the hash of the right node in the proof and we take a look at the left node
-                &current_branch.left
-            };
-            match &**next_node {
-                NodeV2::Branch(b) => {
-                    current_branch = b;
-                }
-                NodeV2::Leaf(l) => {
-                    return Ok(&l.value);
                 }
             };
         }
@@ -261,11 +230,7 @@ where
 }
 
 #[allow(dead_code)]
-pub fn verify_proof<T>(
-    root: &[u8; 32],
-    value: T,
-    proof: &[(bool, [u8; 32])],
-) -> Result<(), anyhow::Error>
+pub fn verify_proof<T>(root: &[u8; 32], value: T, proof: &MerkleProof) -> Result<(), anyhow::Error>
 where
     T: AsRef<[u8]>,
 {
@@ -332,12 +297,7 @@ mod merkletree_tests {
                 .collect::<Vec<bool>>();
             let selected = tree.get(&selector).unwrap();
             assert_eq!(selected.value, value);
-            let owned_proof: Vec<(bool, [u8; 32])> = selected
-                .proof
-                .iter()
-                .map(|v| (v.0, v.1.to_owned()))
-                .collect();
-            if let Err(e) = verify_proof(tree.root_hash(), selected.value, &owned_proof) {
+            if let Err(e) = verify_proof(tree.root_hash(), selected.value, &selected.proof) {
                 panic!("{e:?}");
             }
         }
