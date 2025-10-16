@@ -62,7 +62,7 @@ pub struct MerkleTreeV2<T>
 where
     T: Clone + Default + AsRef<[u8]>,
 {
-    depth: u8,
+    pub depth: u8,
     root: BranchV2<T>,
 }
 
@@ -122,6 +122,28 @@ where
         Err(anyhow!(
             "unexpected end of direction selector without leaves"
         ))
+    }
+
+    pub fn index_to_selector(&self, index: usize) -> Vec<bool> {
+        let mut selector = vec![];
+
+        let mut i = index;
+        while i != 0 {
+            if i % 2 == 0 {
+                selector.push(false);
+            } else {
+                selector.push(true);
+            }
+            i /= 2;
+        }
+
+        if selector.len() < self.depth as usize {
+            selector.resize(self.depth as usize, false);
+        }
+
+        selector.reverse();
+
+        selector
     }
 
     #[allow(dead_code)]
@@ -301,5 +323,25 @@ mod merkletree_tests {
                 panic!("{e:?}");
             }
         }
+    }
+
+    #[test]
+    fn test_selector() {
+        let depth = 12u8;
+        let number_of_elements = 2usize.pow(depth.into());
+        let mut values = vec![];
+        for _ in 0..number_of_elements {
+            let inner_value: [u8; 64] = rand::random();
+            values.push(Stuff { v: inner_value });
+        }
+        let tree = MerkleTreeV2::new(depth, &values).unwrap();
+        assert_eq!(tree.index_to_selector(0), vec![false; depth as usize]);
+        assert_eq!(tree.index_to_selector(4095), vec![true; depth as usize]);
+        let mut expected = vec![false; depth as usize];
+        expected[11] = true;
+        assert_eq!(tree.index_to_selector(1), expected);
+        let mut expected = vec![false; depth as usize];
+        expected[10] = true;
+        assert_eq!(tree.index_to_selector(2), expected);
     }
 }

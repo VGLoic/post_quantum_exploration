@@ -264,5 +264,8 @@
  * Note: the real FRI is actually a bit more complex, the finite field is a binary Galois field, exponent for the row is 4 and not 2, and possibly other modifications.
  */
 
+mod commitment;
+mod fri;
 pub mod polynomial;
+mod prf;
 pub mod range_check;

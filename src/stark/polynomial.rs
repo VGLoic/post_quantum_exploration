@@ -76,7 +76,6 @@ impl<const N: u32> Polynomial<N> {
         points: Vec<PrimeFieldElement<N>>,
         values: Vec<PrimeFieldElement<N>>,
     ) -> Option<Self> {
-        println!("Interpolation with: {points:?} & {values:?}");
         if points.is_empty() || points.len() != values.len() {
             return Some(Self::default());
         }
@@ -234,6 +233,24 @@ impl<const N: u32> Polynomial<N> {
         }
         evaluation
     }
+
+    pub fn partially_evaluate_as_binomial(&self, x: PrimeFieldElement<N>, exponent: usize) -> Self {
+        let mut coefficients = Vec::with_capacity(self.degree() / exponent);
+
+        let mut x_powered = PrimeFieldElement::<N>::from(1);
+        for (i, c) in self.coefficients.iter().enumerate() {
+            if i % exponent == 0 {
+                coefficients.push(*c);
+                x_powered = PrimeFieldElement::<N>::from(1)
+            } else {
+                let index = i / exponent;
+                x_powered = x_powered.mul(&x);
+                coefficients[index] = coefficients[index].add(&c.mul(&x_powered));
+            }
+        }
+
+        Self::new(coefficients)
+    }
 }
 
 impl<const N: u32> std::fmt::Display for Polynomial<N> {
@@ -387,6 +404,29 @@ mod polynomial_tests {
         assert_eq!(p.evaluate_as_binomial(3.into(), 2.into(), 3), 43.into()); // 4 + 18 + 6 + 2 + 9 + 3 + 1
         assert_eq!(p.evaluate_as_binomial(2.into(), 0.into(), 3), 7.into());
         assert_eq!(p.evaluate_as_binomial(1.into(), 1.into(), 3), 7.into());
+    }
+
+    #[test]
+    fn test_partial_evaluation_as_binomial() {
+        // P(x) = x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+        // with y = x^3 -> G(x, y) = y^2 + yx^2 + yx + y + x^2 + x + 1
+        // with x = 1 => G(1, y) = y^2 + 3y + 3
+        // with x = 3 => G(3, y) = y^2 + (9 + 3 + 1)y + 9 + 3 + 1 = y^2 + 13y + 13
+        let p = Polynomial1B7::new([1, 1, 1, 1, 1, 1, 1].map(PrimeFieldElement::from).to_vec()); // x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+        assert_eq!(
+            p.partially_evaluate_as_binomial(1.into(), 3),
+            Polynomial1B7::new(vec![3.into(), 3.into(), 1.into()])
+        );
+        assert_eq!(
+            p.partially_evaluate_as_binomial(3.into(), 3),
+            Polynomial1B7::new(vec![13.into(), 13.into(), 1.into()])
+        );
+
+        assert_eq!(
+            p.partially_evaluate_as_binomial(3.into(), 2)
+                .evaluate(1.into()),
+            p.evaluate_as_binomial(3.into(), 1.into(), 2)
+        );
     }
 
     #[test]
