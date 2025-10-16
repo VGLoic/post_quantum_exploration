@@ -26,11 +26,7 @@ impl<const N: u32> Polynomial<N> {
         }
     }
 
-    pub fn interpolate_from_roots(roots: Vec<PrimeFieldElement<N>>) -> Self {
-        Self::interpolate_from_roots_slice(&roots)
-    }
-
-    pub fn interpolate_from_roots_slice(roots: &[PrimeFieldElement<N>]) -> Self {
+    pub fn interpolate_from_roots(roots: &[PrimeFieldElement<N>]) -> Self {
         if roots.is_empty() {
             return Self::default();
         }
@@ -73,17 +69,17 @@ impl<const N: u32> Polynomial<N> {
     }
 
     pub fn interpolate_from_coordinates(
-        points: Vec<PrimeFieldElement<N>>,
-        values: Vec<PrimeFieldElement<N>>,
+        points: &[PrimeFieldElement<N>],
+        values: &[PrimeFieldElement<N>],
     ) -> Option<Self> {
         if points.is_empty() || points.len() != values.len() {
             return Some(Self::default());
         }
 
-        let master_numerator = Self::interpolate_from_roots_slice(&points);
+        let master_numerator = Self::interpolate_from_roots(points);
 
         let mut p_coefficients = vec![PrimeFieldElement::<N>::from(0); points.len()];
-        for (x_i, y_i) in points.into_iter().zip(values) {
+        for (x_i, y_i) in points.iter().zip(values) {
             let (numerator, _) = master_numerator.div(&Self::new(vec![x_i.neg(), 1.into()]))?;
             let numerator_evaluation = numerator.evaluate(x_i);
 
@@ -148,10 +144,10 @@ impl<const N: u32> Polynomial<N> {
         Self::new(coefficients)
     }
 
-    pub fn mul_by_scalar(&self, a: PrimeFieldElement<N>) -> Self {
+    pub fn mul_by_scalar(&self, a: &PrimeFieldElement<N>) -> Self {
         let mut coefficients: Vec<PrimeFieldElement<N>> = Vec::with_capacity(1 + self.degree());
         for c in &self.coefficients {
-            coefficients.push(c.mul(&a));
+            coefficients.push(c.mul(a));
         }
         Self::new(coefficients)
     }
@@ -195,7 +191,7 @@ impl<const N: u32> Polynomial<N> {
         ))
     }
 
-    pub fn evaluate(&self, x: PrimeFieldElement<N>) -> PrimeFieldElement<N> {
+    pub fn evaluate(&self, x: &PrimeFieldElement<N>) -> PrimeFieldElement<N> {
         let mut evaluation = self
             .coefficients
             .first()
@@ -203,7 +199,7 @@ impl<const N: u32> Polynomial<N> {
             .unwrap_or(PrimeFieldElement::from(0));
         let mut power_of_x_evaluated = PrimeFieldElement::from(1);
         for c in self.coefficients.iter().skip(1) {
-            power_of_x_evaluated = power_of_x_evaluated.mul(&x);
+            power_of_x_evaluated = power_of_x_evaluated.mul(x);
             evaluation = evaluation.add(&c.mul(&power_of_x_evaluated));
         }
         evaluation
@@ -211,8 +207,8 @@ impl<const N: u32> Polynomial<N> {
 
     pub fn evaluate_as_binomial(
         &self,
-        x: PrimeFieldElement<N>,
-        y: PrimeFieldElement<N>,
+        x: &PrimeFieldElement<N>,
+        y: &PrimeFieldElement<N>,
         exponent: u32,
     ) -> PrimeFieldElement<N> {
         let mut evaluation = self
@@ -224,17 +220,21 @@ impl<const N: u32> Polynomial<N> {
         let mut power_of_x_evaluated = PrimeFieldElement::<N>::from(1);
         for (i, c) in self.coefficients.iter().skip(1).enumerate() {
             if (i + 1) % (exponent as usize) == 0 {
-                base = base.mul(&y);
+                base = base.mul(y);
                 power_of_x_evaluated = base;
             } else {
-                power_of_x_evaluated = power_of_x_evaluated.mul(&x);
+                power_of_x_evaluated = power_of_x_evaluated.mul(x);
             }
             evaluation = evaluation.add(&c.mul(&power_of_x_evaluated));
         }
         evaluation
     }
 
-    pub fn partially_evaluate_as_binomial(&self, x: PrimeFieldElement<N>, exponent: usize) -> Self {
+    pub fn partially_evaluate_as_binomial(
+        &self,
+        x: &PrimeFieldElement<N>,
+        exponent: usize,
+    ) -> Self {
         let mut coefficients = Vec::with_capacity(self.degree() / exponent);
 
         let mut x_powered = PrimeFieldElement::<N>::from(1);
@@ -244,7 +244,7 @@ impl<const N: u32> Polynomial<N> {
                 x_powered = PrimeFieldElement::<N>::from(1)
             } else {
                 let index = i / exponent;
-                x_powered = x_powered.mul(&x);
+                x_powered = x_powered.mul(x);
                 coefficients[index] = coefficients[index].add(&c.mul(&x_powered));
             }
         }
@@ -301,9 +301,9 @@ mod polynomial_tests {
                 PrimeFieldElement::from(v)
             })
             .collect();
-        let p = Polynomial1B7::interpolate_from_roots(points.clone());
+        let p = Polynomial1B7::interpolate_from_roots(&points);
         for point in points {
-            assert_eq!(p.evaluate(point), 0.into());
+            assert_eq!(p.evaluate(&point), 0.into());
         }
     }
 
@@ -333,10 +333,9 @@ mod polynomial_tests {
                 PrimeFieldElement::from(y)
             })
             .collect();
-        let p =
-            Polynomial1B7::interpolate_from_coordinates(points.clone(), values.clone()).unwrap();
+        let p = Polynomial1B7::interpolate_from_coordinates(&points, &values).unwrap();
         for (x, y) in points.into_iter().zip(values) {
-            assert_eq!(p.evaluate(x), y);
+            assert_eq!(p.evaluate(&x), y);
         }
     }
 
@@ -387,12 +386,12 @@ mod polynomial_tests {
     #[test]
     fn test_evaluation() {
         let p = Polynomial1B7::new([1, 1, 1, 1, 1, 1, 1].map(PrimeFieldElement::from).to_vec()); // x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
-        assert_eq!(p.evaluate(1.into()), 7.into());
-        assert_eq!(p.evaluate(0.into()), 1.into());
+        assert_eq!(p.evaluate(&1.into()), 7.into());
+        assert_eq!(p.evaluate(&0.into()), 1.into());
         let p = Polynomial1B7::new([2, 1_000_000_005, 4].map(PrimeFieldElement::from).to_vec());
-        assert_eq!(p.evaluate(0.into()), 2.into());
-        assert_eq!(p.evaluate(1.into()), 4.into());
-        assert_eq!(p.evaluate(4.into()), 58.into());
+        assert_eq!(p.evaluate(&0.into()), 2.into());
+        assert_eq!(p.evaluate(&1.into()), 4.into());
+        assert_eq!(p.evaluate(&4.into()), 58.into());
     }
 
     #[test]
@@ -400,10 +399,10 @@ mod polynomial_tests {
         // P(x) = x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
         // with y = x^3 -> G(x, y) = y^2 + yx^2 + yx + y + x^2 + x + 1
         let p = Polynomial1B7::new([1, 1, 1, 1, 1, 1, 1].map(PrimeFieldElement::from).to_vec()); // x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
-        assert_eq!(p.evaluate_as_binomial(1.into(), 2.into(), 3), 13.into()); // 4 + 2 + 2 + 2 + 1 + 1 + 1 
-        assert_eq!(p.evaluate_as_binomial(3.into(), 2.into(), 3), 43.into()); // 4 + 18 + 6 + 2 + 9 + 3 + 1
-        assert_eq!(p.evaluate_as_binomial(2.into(), 0.into(), 3), 7.into());
-        assert_eq!(p.evaluate_as_binomial(1.into(), 1.into(), 3), 7.into());
+        assert_eq!(p.evaluate_as_binomial(&1.into(), &2.into(), 3), 13.into()); // 4 + 2 + 2 + 2 + 1 + 1 + 1 
+        assert_eq!(p.evaluate_as_binomial(&3.into(), &2.into(), 3), 43.into()); // 4 + 18 + 6 + 2 + 9 + 3 + 1
+        assert_eq!(p.evaluate_as_binomial(&2.into(), &0.into(), 3), 7.into());
+        assert_eq!(p.evaluate_as_binomial(&1.into(), &1.into(), 3), 7.into());
     }
 
     #[test]
@@ -414,18 +413,18 @@ mod polynomial_tests {
         // with x = 3 => G(3, y) = y^2 + (9 + 3 + 1)y + 9 + 3 + 1 = y^2 + 13y + 13
         let p = Polynomial1B7::new([1, 1, 1, 1, 1, 1, 1].map(PrimeFieldElement::from).to_vec()); // x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
         assert_eq!(
-            p.partially_evaluate_as_binomial(1.into(), 3),
+            p.partially_evaluate_as_binomial(&1.into(), 3),
             Polynomial1B7::new(vec![3.into(), 3.into(), 1.into()])
         );
         assert_eq!(
-            p.partially_evaluate_as_binomial(3.into(), 3),
+            p.partially_evaluate_as_binomial(&3.into(), 3),
             Polynomial1B7::new(vec![13.into(), 13.into(), 1.into()])
         );
 
         assert_eq!(
-            p.partially_evaluate_as_binomial(3.into(), 2)
-                .evaluate(1.into()),
-            p.evaluate_as_binomial(3.into(), 1.into(), 2)
+            p.partially_evaluate_as_binomial(&3.into(), 2)
+                .evaluate(&1.into()),
+            p.evaluate_as_binomial(&3.into(), &1.into(), 2)
         );
     }
 

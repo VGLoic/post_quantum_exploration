@@ -20,15 +20,16 @@ fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
     if max_degree == 0 {
         return Ok(0);
     }
+    let mut degree = max_degree;
     let mut i = 0;
-    let mut degree = DEGREE_THRESHOLD;
-    while degree < max_degree {
-        degree *= 4;
+    while degree > DEGREE_THRESHOLD {
+        if degree % 4 != 0 {
+            return Err(anyhow!(
+                "max_degree must be a divisble by 4 until degree threshold {DEGREE_THRESHOLD} is reached"
+            ));
+        }
+        degree /= 4;
         i += 1;
-    }
-
-    if degree != max_degree {
-        return Err(anyhow!("max_degree must be a multiple of 4"));
     }
 
     Ok(i)
@@ -37,14 +38,14 @@ fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
 pub fn low_degree_proof<const N: u32>(
     p: Polynomial<N>,
     p_commitments_tree: MerkleTreeV2<Evaluation<N>>,
-    units: Vec<PrimeFieldElement<N>>,
+    units: &[PrimeFieldElement<N>],
     max_degree: u32,
 ) -> Result<LowDegreeProof<N>, anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
     let mut diagonal_commitments_tree = p_commitments_tree;
     let mut diag_p = p;
-    let mut units_in_row = units;
+    let mut units_in_row = units.to_owned();
 
     let original_commitments_root = *diagonal_commitments_tree.root_hash();
 
@@ -55,7 +56,7 @@ pub fn low_degree_proof<const N: u32>(
             units_in_row.len(),
         );
         let x_c = &units_in_row[x_c_index];
-        let p_on_the_column = diag_p.partially_evaluate_as_binomial(*x_c, 4);
+        let p_on_the_column = diag_p.partially_evaluate_as_binomial(x_c, 4);
 
         let units_in_column: Vec<PrimeFieldElement<N>> = units_in_row
             .iter()
@@ -65,7 +66,7 @@ pub fn low_degree_proof<const N: u32>(
             .collect();
         let mut column_evaluations = vec![];
         for unit in &units_in_column {
-            let evaluation = p_on_the_column.evaluate(*unit);
+            let evaluation = p_on_the_column.evaluate(unit);
             column_evaluations.push(Evaluation::new(evaluation));
         }
         let column_commitments_tree = build_tree(&column_evaluations)?;
@@ -127,14 +128,14 @@ pub fn low_degree_proof<const N: u32>(
 
 pub fn verify_low_degree_proof<const N: u32>(
     proof: LowDegreeProof<N>,
-    units: Vec<PrimeFieldElement<N>>,
+    units: &[PrimeFieldElement<N>],
     max_degree: u32,
 ) -> Result<(), anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
     let mut diag_root: [u8; 32] = proof.original_commitments_root;
 
-    let mut units_in_row = units;
+    let mut units_in_row = units.to_owned();
 
     if indirect_steps_count as usize != proof.indirect_commitments.len() {
         return Err(anyhow!(
@@ -215,7 +216,7 @@ pub fn verify_low_degree_proof<const N: u32>(
             row_values.push(associated_column_commitment.evaluation.v);
 
             let interpolated_p =
-                Polynomial::<N>::interpolate_from_coordinates(row_points, row_values)
+                Polynomial::<N>::interpolate_from_coordinates(&row_points, &row_values)
                     .ok_or(anyhow!("failed to interpolate row polynomial"))?;
 
             if interpolated_p.degree() >= 4 {
@@ -266,7 +267,7 @@ pub fn verify_low_degree_proof<const N: u32>(
         values.push(direct_commitment.evaluation.v);
     }
 
-    let interpolated_p = Polynomial::<N>::interpolate_from_coordinates(points, values)
+    let interpolated_p = Polynomial::<N>::interpolate_from_coordinates(&points, &values)
         .ok_or(anyhow!("failed to interpolate from direct commitments"))?;
 
     if interpolated_p.degree() >= DEGREE_THRESHOLD as usize {
