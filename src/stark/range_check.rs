@@ -1,5 +1,5 @@
 /*
- * Our goal is to implement a stark proof for the knowledge of a polynomial P of degree less than 1_000_000 such that 0 <= P(x) <= 9 for x between 1 and 1_000_000.
+ * Our goal is to implement a stark proof for the knowledge of a polynomial P such that 0 <= P(x) <= 9 for x between 1 and 1_000.
  */
 
 use anyhow::anyhow;
@@ -15,25 +15,24 @@ use crate::{
     },
 };
 
-const P_MAX_DEGREE: u32 = 1_000;
-
+/// Generate a stark proof for
 pub fn stark_proof<const N: u32>(
     p: Polynomial<N>,
     root_of_unity: PrimeFieldElement<N>,
+    max_degree: u32,
 ) -> Result<StarkProof<N>, anyhow::Error> {
     let units = derive_units(root_of_unity);
 
-    // We evaluate the polynomial over all the available units
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
 
     for unit in &units {
         let p_eval = p.evaluate(*unit);
         let cp_eval = Polynomial::interpolate_and_evaluate_zpoly(0..10, &p_eval);
-        let d_eval = if unit.inner() <= P_MAX_DEGREE {
+        let d_eval = if unit.inner() <= max_degree {
             0.into()
         } else {
-            let z_eval = Polynomial::interpolate_and_evaluate_zpoly(1..(P_MAX_DEGREE + 1), unit);
+            let z_eval = Polynomial::interpolate_and_evaluate_zpoly(1..(max_degree + 1), unit);
             cp_eval.mul(
                 &z_eval
                     .inv()
@@ -64,7 +63,7 @@ pub fn stark_proof<const N: u32>(
         d_commitments,
     };
 
-    let low_degree_proof = low_degree_proof(p, p_commitments_tree, units, P_MAX_DEGREE)?;
+    let low_degree_proof = low_degree_proof(p, p_commitments_tree, units, max_degree)?;
 
     Ok(StarkProof {
         low_degree_proof,
@@ -75,6 +74,7 @@ pub fn stark_proof<const N: u32>(
 pub fn verify_stark_proof<const N: u32>(
     stark_proof: StarkProof<N>,
     root_of_unity: PrimeFieldElement<N>,
+    max_degree: u32,
 ) -> Result<(), anyhow::Error> {
     let units = derive_units(root_of_unity);
 
@@ -138,15 +138,14 @@ pub fn verify_stark_proof<const N: u32>(
         let unit = &units[expected_unit_index];
 
         let cp_eval = Polynomial::interpolate_and_evaluate_zpoly(0..10, &p_commitment.evaluation.v);
-        if unit.inner() <= P_MAX_DEGREE {
+        if unit.inner() <= max_degree {
             if cp_eval != 0.into() {
                 return Err(anyhow!(
                     "evaluation of constraint polynomial is not zero within constraint limits, got {cp_eval}"
                 ));
             }
         } else {
-            let z_eval =
-                Polynomial::<N>::interpolate_and_evaluate_zpoly(1..(P_MAX_DEGREE + 1), unit);
+            let z_eval = Polynomial::<N>::interpolate_and_evaluate_zpoly(1..(max_degree + 1), unit);
             let rhs = z_eval.mul(&d_commitment.evaluation.v);
             if rhs != cp_eval {
                 return Err(anyhow!(
@@ -156,7 +155,7 @@ pub fn verify_stark_proof<const N: u32>(
         }
     }
 
-    verify_low_degree_proof(stark_proof.low_degree_proof, units, P_MAX_DEGREE)?;
+    verify_low_degree_proof(stark_proof.low_degree_proof, units, max_degree)?;
 
     Ok(())
 }
@@ -193,10 +192,7 @@ mod test {
 
     const N: u32 = 1_073_153; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
     const ROOT_OF_UNITY: u32 = 3;
-    const P_MAX_DEGREE: u32 = 1_000; // 0 <= P(x) <= 9 for 1 <= x <= 1_000 => 1_000 constraints. One can always use Lagrange to build a valid 1_000 degree polynomial // REMIND ME
-
-    type FieldElementRG = PrimeFieldElement<N>;
-    type PolynomialRG = Polynomial<N>;
+    const P_MAX_DEGREE: u32 = 1_024; // 0 <= P(x) <= 9 for 1 <= x <= 1_000 => 1_000 constraints. One can always use Lagrange to build a valid 1_000 degree polynomial // REMIND ME
 
     #[test]
     fn test_power_of_4() {
@@ -243,18 +239,63 @@ mod test {
 
     #[test]
     #[cfg_attr(not(feature = "stark"), ignore)]
-    fn test_stark_proof() {
+    fn test_stark_proof_degree_0() {
+        let p = Polynomial::<N>::new(vec![4.into()]);
+        assert_eq!(p.degree(), 0);
+
+        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), 1024).unwrap();
+        verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "stark"), ignore)]
+    fn test_stark_proof_degree_1023() {
         // We define a polynomial P with degree less than P_MAX_DEGREE and verifying 0 <= P(x) <= 9 for x between 1 and P_MAX_DEGREE
         // P will be 0 at 1 <= x < P_MAX_DEGREE, it will gives a (P_MAX_DEGREE - 1) polynomial that we're gonna scale down with the evaluation at x = P_MAX_DEGREE
-        let mut p = PolynomialRG::interpolate_from_roots(
-            (1..P_MAX_DEGREE).map(FieldElementRG::from).collect(),
+        let mut p = Polynomial::<N>::interpolate_from_roots(
+            (1..P_MAX_DEGREE)
+                .map(PrimeFieldElement::<N>::from)
+                .collect(),
         );
         p = p.mul_by_scalar(p.evaluate(P_MAX_DEGREE.into()).inv().unwrap());
-        if p.degree() >= P_MAX_DEGREE as usize {
-            panic!("Invalid degree, got {}", p.degree());
-        }
+        assert_eq!(p.degree(), P_MAX_DEGREE as usize - 1);
 
-        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into()).unwrap();
-        verify_stark_proof(stark_proof, ROOT_OF_UNITY.into()).unwrap();
+        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
+        verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "stark"), ignore)]
+    fn test_stark_proof_degree_1024() {
+        let p = Polynomial::<N>::interpolate_from_roots(
+            (1..(P_MAX_DEGREE + 1))
+                .map(PrimeFieldElement::<N>::from)
+                .collect(),
+        );
+        assert_eq!(p.degree(), P_MAX_DEGREE as usize);
+
+        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
+        assert!(verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).is_err());
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "stark"), ignore)]
+    fn test_stark_proof_invalid_polynomial() {
+        let mut p = Polynomial::<N>::interpolate_from_roots(
+            (1..P_MAX_DEGREE)
+                .map(PrimeFieldElement::<N>::from)
+                .collect(),
+        );
+        p = p.mul_by_scalar(
+            p.evaluate(P_MAX_DEGREE.into())
+                .inv()
+                .unwrap()
+                .mul(&PrimeFieldElement::<N>::from(10)),
+        );
+        assert_eq!(p.degree(), P_MAX_DEGREE as usize - 1);
+
+        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
+        // REMIND ME: should not pass!
+        verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
     }
 }

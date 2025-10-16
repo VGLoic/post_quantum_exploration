@@ -13,15 +13,34 @@ use crate::{
     },
 };
 
+const DEGREE_THRESHOLD: u32 = 16;
+const DIRECT_COMMITMENTS_COUNT: usize = 40;
+
+fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
+    if max_degree == 0 {
+        return Ok(0);
+    }
+    let mut i = 0;
+    let mut degree = DEGREE_THRESHOLD;
+    while degree < max_degree {
+        degree *= 4;
+        i += 1;
+    }
+
+    if degree != max_degree {
+        return Err(anyhow!("max_degree must be a multiple of 4"));
+    }
+
+    Ok(i)
+}
+
 pub fn low_degree_proof<const N: u32>(
     p: Polynomial<N>,
     p_commitments_tree: MerkleTreeV2<Evaluation<N>>,
     units: Vec<PrimeFieldElement<N>>,
-    degree: u32,
+    max_degree: u32,
 ) -> Result<LowDegreeProof<N>, anyhow::Error> {
-    let mut max_degree_to_proove = degree;
-
-    let threshold_degree = 60_u32;
+    let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
     let mut diagonal_commitments_tree = p_commitments_tree;
     let mut diag_p = p;
@@ -30,7 +49,7 @@ pub fn low_degree_proof<const N: u32>(
     let original_commitments_root = *diagonal_commitments_tree.root_hash();
 
     let mut indirect_commitments: Vec<IndirectCommitment<N>> = vec![];
-    while max_degree_to_proove > threshold_degree {
+    for _ in 0..indirect_steps_count {
         let x_c_index = pseudo_random_select_unit_index(
             diagonal_commitments_tree.root_hash(),
             units_in_row.len(),
@@ -87,13 +106,11 @@ pub fn low_degree_proof<const N: u32>(
         diagonal_commitments_tree = column_commitments_tree;
         diag_p = p_on_the_column;
         units_in_row = units_in_column;
-
-        max_degree_to_proove /= 4;
     }
 
     let final_indices = pseudo_random_select_units_indices(
         diagonal_commitments_tree.root_hash(),
-        80,
+        DIRECT_COMMITMENTS_COUNT,
         units_in_row.len(),
     );
     let direct_commitments = final_indices
@@ -111,11 +128,20 @@ pub fn low_degree_proof<const N: u32>(
 pub fn verify_low_degree_proof<const N: u32>(
     proof: LowDegreeProof<N>,
     units: Vec<PrimeFieldElement<N>>,
-    degree: u32,
+    max_degree: u32,
 ) -> Result<(), anyhow::Error> {
+    let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
+
     let mut diag_root: [u8; 32] = proof.original_commitments_root;
 
     let mut units_in_row = units;
+
+    if indirect_steps_count as usize != proof.indirect_commitments.len() {
+        return Err(anyhow!(
+            "invalid number of indirect steps, expected {indirect_steps_count}, got {}",
+            proof.indirect_commitments.len()
+        ));
+    }
 
     for indirect_commitment in &proof.indirect_commitments {
         let x_c_index = pseudo_random_select_unit_index(&diag_root, units_in_row.len());
@@ -204,11 +230,15 @@ pub fn verify_low_degree_proof<const N: u32>(
         diag_root = indirect_commitment.column_root;
     }
 
-    let final_indices = pseudo_random_select_units_indices(&diag_root, 80, units_in_row.len());
+    let final_indices = pseudo_random_select_units_indices(
+        &diag_root,
+        DIRECT_COMMITMENTS_COUNT,
+        units_in_row.len(),
+    );
 
     if final_indices.len() != proof.direct_commitments.len() {
         return Err(anyhow!(
-            "invalid direct commitments, expected 20, got {}",
+            "invalid direct commitments, expected {DIRECT_COMMITMENTS_COUNT}, got {}",
             proof.direct_commitments.len()
         ));
     }
@@ -239,27 +269,11 @@ pub fn verify_low_degree_proof<const N: u32>(
     let interpolated_p = Polynomial::<N>::interpolate_from_coordinates(points, values)
         .ok_or(anyhow!("failed to interpolate from direct commitments"))?;
 
-    if interpolated_p.degree() >= 60 {
+    if interpolated_p.degree() >= DEGREE_THRESHOLD as usize {
         return Err(anyhow!(
-            "direct commitments lead to an interpolation of degree higher than 60, got: {}",
+            "direct commitments lead to an interpolation of degree higher than {DEGREE_THRESHOLD}, got: {}",
             interpolated_p.degree()
         ));
-    }
-
-    if !proof.indirect_commitments.is_empty() {
-        let threshold_degree = 60_u32;
-        let mut expected_indirect_steps_count = 0;
-        let mut deg = degree;
-        while deg > threshold_degree {
-            deg /= 4;
-            expected_indirect_steps_count += 1;
-        }
-        if expected_indirect_steps_count != proof.indirect_commitments.len() {
-            return Err(anyhow!(
-                "invalid number of indirect steps, expected {expected_indirect_steps_count}, got {}",
-                proof.indirect_commitments.len()
-            ));
-        }
     }
 
     Ok(())
