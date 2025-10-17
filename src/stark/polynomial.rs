@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use crate::primefield::PrimeFieldElement;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -33,9 +31,6 @@ impl<const N: u32> Polynomial<N> {
         let mut coefficients = Vec::with_capacity(roots.len());
         coefficients.push(PrimeFieldElement::from(1));
         for (i, x) in roots.iter().enumerate() {
-            if i > 0 && i % 10_000 == 0 {
-                println!("[interpolation from roots] reached a 10_000 step");
-            }
             let x_neg = x.neg();
             // Handle leading coefficient
             coefficients.push(1.into());
@@ -51,21 +46,47 @@ impl<const N: u32> Polynomial<N> {
     }
 
     pub fn interpolate_and_evaluate_zpoly(
-        range: Range<u32>,
+        roots: impl Iterator<Item = u32>,
         x: &PrimeFieldElement<N>,
     ) -> PrimeFieldElement<N> {
-        if range.is_empty() {
-            return 0.into();
-        }
-
+        let mut is_empty = true;
         let mut result = PrimeFieldElement::<N>::from(1);
-
-        for root in range {
+        for root in roots {
+            is_empty = false;
             let neg_root = PrimeFieldElement::<N>::from(N - root);
             result = result.mul(&x.add(&neg_root));
         }
+        if is_empty {
+            return 0.into();
+        }
 
         result
+    }
+
+    pub fn interpolate_and_evaluate_from_coordinates(
+        points: &[PrimeFieldElement<N>],
+        values: &[PrimeFieldElement<N>],
+        x: &PrimeFieldElement<N>,
+    ) -> Option<PrimeFieldElement<N>> {
+        if points.is_empty() || points.len() != values.len() {
+            return Some(0.into());
+        }
+
+        let mut result = PrimeFieldElement::<N>::from(0);
+        for (i, (x_i, y_i)) in points.iter().zip(values).enumerate() {
+            let mut contribution = *y_i;
+            for (j, root_j) in points.iter().enumerate() {
+                if i != j {
+                    let root_j_neg = PrimeFieldElement::new(N - root_j.inner());
+                    let numerator = x.add(&root_j_neg);
+                    let denominator = x_i.add(&root_j_neg);
+                    contribution = contribution.mul(&numerator.mul(&denominator.inv()?));
+                }
+            }
+            result = result.add(&contribution);
+        }
+
+        Some(result)
     }
 
     pub fn interpolate_from_coordinates(
@@ -336,6 +357,40 @@ mod polynomial_tests {
         let p = Polynomial1B7::interpolate_from_coordinates(&points, &values).unwrap();
         for (x, y) in points.into_iter().zip(values) {
             assert_eq!(p.evaluate(&x), y);
+        }
+    }
+
+    #[test]
+    fn test_interpolation_and_evaluation_from_coordinates() {
+        let number_of_points: u32 = rand::random_range(2..=100);
+        let points: Vec<PrimeFieldElement<1_000_000_007>> =
+            (0..number_of_points).map(PrimeFieldElement::from).collect();
+        let values: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
+            .map(|_| {
+                let y: u32 = rand::random();
+                PrimeFieldElement::from(y)
+            })
+            .collect();
+        let p = Polynomial1B7::interpolate_from_coordinates(&points, &values).unwrap();
+        for (x, y) in points.iter().zip(&values) {
+            assert_eq!(
+                Polynomial1B7::interpolate_and_evaluate_from_coordinates(&points, &values, x)
+                    .unwrap(),
+                *y
+            );
+        }
+        let additional_points: Vec<PrimeFieldElement<1_000_000_007>> = (0..1_000)
+            .map(|_| {
+                let x: u32 = rand::random();
+                PrimeFieldElement::from(x)
+            })
+            .collect();
+        for x in &additional_points {
+            assert_eq!(
+                p.evaluate(x),
+                Polynomial1B7::interpolate_and_evaluate_from_coordinates(&points, &values, x)
+                    .unwrap()
+            );
         }
     }
 

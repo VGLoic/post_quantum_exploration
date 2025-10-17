@@ -1,62 +1,41 @@
 use anyhow::anyhow;
 
 use crate::{
-    merkletree_v2::{MerkleTreeV2, verify_proof},
+    merkletree_v2::verify_proof,
     primefield::PrimeFieldElement,
     stark::{
         commitment::{Commitment, Evaluation, build_tree},
         polynomial::Polynomial,
-        prf::{
-            pseudo_random_select_row_unit_indices, pseudo_random_select_unit_index,
-            pseudo_random_select_units_indices,
-        },
+        prf::{pseudo_random_select_indirect_proof_indices, pseudo_random_select_units_indices},
     },
 };
 
 const DEGREE_THRESHOLD: u32 = 16;
 const DIRECT_COMMITMENTS_COUNT: usize = 40;
-
-fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
-    if max_degree == 0 {
-        return Ok(0);
-    }
-    let mut degree = max_degree;
-    let mut i = 0;
-    while degree > DEGREE_THRESHOLD {
-        if degree % 4 != 0 {
-            return Err(anyhow!(
-                "max_degree must be a divisble by 4 until degree threshold {DEGREE_THRESHOLD} is reached"
-            ));
-        }
-        degree /= 4;
-        i += 1;
-    }
-
-    Ok(i)
-}
+const ROW_COUNT: usize = 40;
 
 pub fn low_degree_proof<const N: u32>(
-    p: Polynomial<N>,
-    p_commitments_tree: MerkleTreeV2<Evaluation<N>>,
+    values: Vec<Evaluation<N>>,
     units: &[PrimeFieldElement<N>],
     max_degree: u32,
+    seed: Option<[u8; 32]>,
 ) -> Result<LowDegreeProof<N>, anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
-    let mut diagonal_commitments_tree = p_commitments_tree;
-    let mut diag_p = p;
+    let original_commitments_tree = build_tree(&values)?;
+
+    let mut diag_evaluations = values;
+    let mut diagonal_commitments_tree = original_commitments_tree;
     let mut units_in_row = units.to_owned();
+    let mut seed = seed.unwrap_or(*diagonal_commitments_tree.root_hash());
 
     let original_commitments_root = *diagonal_commitments_tree.root_hash();
 
     let mut indirect_commitments: Vec<IndirectCommitment<N>> = vec![];
     for _ in 0..indirect_steps_count {
-        let x_c_index = pseudo_random_select_unit_index(
-            diagonal_commitments_tree.root_hash(),
-            units_in_row.len(),
-        );
+        let (x_c_index, row_indices) =
+            pseudo_random_select_indirect_proof_indices(&seed, ROW_COUNT, units_in_row.len());
         let x_c = &units_in_row[x_c_index];
-        let p_on_the_column = diag_p.partially_evaluate_as_binomial(x_c, 4);
 
         let units_in_column: Vec<PrimeFieldElement<N>> = units_in_row
             .iter()
@@ -64,18 +43,24 @@ pub fn low_degree_proof<const N: u32>(
             .step_by(4)
             .map(|v| v.to_owned())
             .collect();
+
         let mut column_evaluations = vec![];
-        for unit in &units_in_column {
-            let evaluation = p_on_the_column.evaluate(unit);
-            column_evaluations.push(Evaluation::new(evaluation));
+        for unit_index in 0..(units_in_row.len() / 4) {
+            let mut row_points = vec![];
+            let mut row_values = vec![];
+            for i in 0..4 {
+                let index = unit_index + i * units_in_row.len() / 4;
+                row_points.push(units_in_row[index]);
+                row_values.push(diag_evaluations[index].v);
+            }
+            let row_interpolated_p =
+                Polynomial::<N>::interpolate_from_coordinates(&row_points, &row_values).ok_or(
+                    anyhow!("unable to interpolate row polynomial while evaluating column"),
+                )?;
+            column_evaluations.push(Evaluation::new(row_interpolated_p.evaluate(x_c)));
         }
         let column_commitments_tree = build_tree(&column_evaluations)?;
 
-        let row_indices = pseudo_random_select_row_unit_indices(
-            column_commitments_tree.root_hash(),
-            40,
-            units_in_row.len(),
-        );
         let mut indirect_diagonal_commitments = vec![];
         let mut indirect_column_commitments = vec![];
 
@@ -105,7 +90,8 @@ pub fn low_degree_proof<const N: u32>(
         });
 
         diagonal_commitments_tree = column_commitments_tree;
-        diag_p = p_on_the_column;
+        seed = *diagonal_commitments_tree.root_hash();
+        diag_evaluations = column_evaluations;
         units_in_row = units_in_column;
     }
 
@@ -127,13 +113,15 @@ pub fn low_degree_proof<const N: u32>(
 }
 
 pub fn verify_low_degree_proof<const N: u32>(
-    proof: LowDegreeProof<N>,
+    proof: &LowDegreeProof<N>,
     units: &[PrimeFieldElement<N>],
     max_degree: u32,
+    seed: Option<[u8; 32]>,
 ) -> Result<(), anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
-    let mut diag_root: [u8; 32] = proof.original_commitments_root;
+    let mut seed: [u8; 32] = seed.unwrap_or(proof.original_commitments_root);
+    let mut diag_root = proof.original_commitments_root;
 
     let mut units_in_row = units.to_owned();
 
@@ -145,7 +133,8 @@ pub fn verify_low_degree_proof<const N: u32>(
     }
 
     for indirect_commitment in &proof.indirect_commitments {
-        let x_c_index = pseudo_random_select_unit_index(&diag_root, units_in_row.len());
+        let (x_c_index, row_indices) =
+            pseudo_random_select_indirect_proof_indices(&seed, ROW_COUNT, units_in_row.len());
         let x_c = &units_in_row[x_c_index];
 
         let units_in_column: Vec<PrimeFieldElement<N>> = units_in_row
@@ -154,12 +143,6 @@ pub fn verify_low_degree_proof<const N: u32>(
             .step_by(4)
             .map(|v| v.to_owned())
             .collect();
-
-        let row_indices = pseudo_random_select_row_unit_indices(
-            &indirect_commitment.column_root,
-            40,
-            units_in_row.len(),
-        );
 
         if indirect_commitment.column_commitments.len()
             != indirect_commitment.diagonal_commitments.len()
@@ -229,6 +212,7 @@ pub fn verify_low_degree_proof<const N: u32>(
 
         units_in_row = units_in_column;
         diag_root = indirect_commitment.column_root;
+        seed = indirect_commitment.column_root;
     }
 
     let final_indices = pseudo_random_select_units_indices(
@@ -247,7 +231,7 @@ pub fn verify_low_degree_proof<const N: u32>(
     let mut values = vec![];
 
     for (direct_commitment, expected_unit_index) in
-        proof.direct_commitments.into_iter().zip(final_indices)
+        proof.direct_commitments.iter().zip(final_indices)
     {
         verify_proof(
             &diag_root,
@@ -292,4 +276,23 @@ pub struct IndirectCommitment<const N: u32> {
     pub column_root: [u8; 32],
     // Vec of column commitments, each element contains 4 values over a 4-root, only the first one should be used in order to match the row from the diagonal commitment above
     pub column_commitments: Vec<Commitment<N>>,
+}
+
+fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
+    if max_degree == 0 {
+        return Ok(0);
+    }
+    let mut degree = max_degree;
+    let mut i = 0;
+    while degree > DEGREE_THRESHOLD {
+        if degree % 4 != 0 {
+            return Err(anyhow!(
+                "max_degree must be a divisble by 4 until degree threshold {DEGREE_THRESHOLD} is reached"
+            ));
+        }
+        degree /= 4;
+        i += 1;
+    }
+
+    Ok(i)
 }
