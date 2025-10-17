@@ -37,6 +37,7 @@ pub fn low_degree_proof<const N: u32>(
             pseudo_random_select_indirect_proof_indices(&seed, ROW_COUNT, units_in_row.len());
         let x_c = &units_in_row[x_c_index];
 
+        // REMIND ME: consider removing this re-creation and only use smart indexes
         let units_in_column: Vec<PrimeFieldElement<N>> = units_in_row
             .iter()
             .skip(3)
