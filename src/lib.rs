@@ -3,7 +3,7 @@ mod merkle_stateless_winternitz_sig;
 mod merkletree_v0;
 mod merkletree_v1;
 pub mod merkletree_v2;
-mod modular_arithmetic;
+pub mod modular_arithmetic;
 mod ntru;
 pub mod primefield;
 pub mod stark;
