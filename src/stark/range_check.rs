@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::anyhow;
 
 use crate::{
@@ -6,7 +8,7 @@ use crate::{
         commitment::Evaluation,
         fri::{LowDegreeProof, low_degree_proof, verify_low_degree_proof},
         polynomial::Polynomial,
-        prf::pseudo_random_select_indirect_proof_indices,
+        prf::pseudo_random_select_units_indices,
     },
 };
 
@@ -20,10 +22,18 @@ pub fn stark_proof<const N: u32>(
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
 
-    for unit in &units {
+    let mut all_points = vec![];
+    let mut all_values = vec![];
+    let mut points = vec![];
+    let mut values = vec![];
+
+    let mut excluded_indices = HashSet::new();
+
+    for (i, unit) in units.iter().enumerate() {
         let p_eval = p.evaluate(unit);
         let cp_eval = Polynomial::interpolate_and_evaluate_zpoly(0..10, &p_eval);
         let d_eval = if unit.inner() <= max_degree {
+            excluded_indices.insert(i);
             // This value will not be checked so we can put any value we want here
             0.into()
         } else {
@@ -35,17 +45,26 @@ pub fn stark_proof<const N: u32>(
             )
         };
 
+        if unit.inner() > max_degree {
+            points.push(*unit);
+            values.push(d_eval);
+        }
+        all_points.push(*unit);
+        all_values.push(d_eval);
+
         p_evaluations.push(Evaluation::new(p_eval));
         d_evaluations.push(Evaluation::new(d_eval));
     }
 
-    let p_low_degree_proof = low_degree_proof(p_evaluations, &units, max_degree, None)
-        .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
+    let p_low_degree_proof =
+        low_degree_proof(p_evaluations, &units, max_degree, None, &excluded_indices)
+            .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
     let d_low_degree_proof = low_degree_proof(
         d_evaluations,
         &units,
         9 * max_degree,
         Some(p_low_degree_proof.original_commitments_root),
+        &excluded_indices,
     )
     .map_err(|e| e.context("generation of low degree proof for d polynomial"))?;
 
@@ -61,14 +80,27 @@ pub fn verify_stark_proof<const N: u32>(
     max_degree: u32,
 ) -> Result<(), anyhow::Error> {
     let units = derive_units(root_of_unity);
+    let mut excluded_indices = HashSet::new();
+    for (i, unit) in units.iter().enumerate() {
+        if unit.inner() <= max_degree {
+            excluded_indices.insert(i);
+        }
+    }
 
-    verify_low_degree_proof(&stark_proof.p_low_degree_proof, &units, max_degree, None)
-        .map_err(|e| e.context("low degree test of p polynomial"))?;
+    verify_low_degree_proof(
+        &stark_proof.p_low_degree_proof,
+        &units,
+        max_degree,
+        None,
+        &excluded_indices,
+    )
+    .map_err(|e| e.context("low degree test of p polynomial"))?;
     verify_low_degree_proof(
         &stark_proof.d_low_degree_proof,
         &units,
         9 * max_degree,
         Some(stark_proof.p_low_degree_proof.original_commitments_root),
+        &excluded_indices,
     )
     .map_err(|e| e.context("low degree test of d polynomial"))?;
 
@@ -85,10 +117,25 @@ pub fn verify_stark_proof<const N: u32>(
         .map(|c| &c.diagonal_commitments)
         .ok_or(anyhow!("expected at least one indirect commitment"))?;
 
-    let (_, expected_row_unit_indices) = pseudo_random_select_indirect_proof_indices(
+    let x_c_index = *pseudo_random_select_units_indices(
+        &stark_proof.p_low_degree_proof.original_commitments_root,
+        1,
+        units.len(),
+        &excluded_indices,
+        None,
+    )
+    .first()
+    .unwrap();
+    let mut column_excluded_indices = HashSet::new();
+    for i in &excluded_indices {
+        column_excluded_indices.insert(i % (units.len() / 4));
+    }
+    let expected_row_unit_indices = pseudo_random_select_units_indices(
         &stark_proof.p_low_degree_proof.original_commitments_root,
         40,
-        units.len(),
+        units.len() / 4,
+        &column_excluded_indices,
+        Some(x_c_index),
     );
 
     for ((p_row_commitments, d_row_commitments), expected_row_index) in p_original_commitments
@@ -157,9 +204,14 @@ mod test {
     use super::*;
     use crate::stark::polynomial::Polynomial;
 
-    const N: u32 = 1_073_153; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
+    const N: u32 = 40_961; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
     const ROOT_OF_UNITY: u32 = 3;
-    const P_MAX_DEGREE: u32 = 1_024; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
+    // const N: u32 = 12_289; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
+    // const ROOT_OF_UNITY: u32 = 11;
+    const P_MAX_DEGREE: u32 = 256; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
+    // const N: u32 = 1_073_153; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
+    // const ROOT_OF_UNITY: u32 = 3;
+    // const P_MAX_DEGREE: u32 = 1_024; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
     // REMIND ME: consider distinguishing max degree and constraint ranges
 
     #[test]
@@ -182,6 +234,56 @@ mod test {
             );
         }
     }
+
+    // REMIND ME NEED TO DO SOMETHING?
+    // #[test]
+    // fn test_indices_selection() {
+    //     let root = PrimeFieldElement::<N>::from(ROOT_OF_UNITY);
+    //     let units = derive_units(root);
+
+    //     let seed: [u8; 32] = rand::random();
+
+    //     let mut excluded_indices = HashSet::new();
+    //     for (i, unit) in units.iter().enumerate() {
+    //         if unit.inner() <= P_MAX_DEGREE {
+    //             excluded_indices.insert(i);
+    //         }
+    //     }
+
+    //     let mut reduced_units = units;
+    //     for reduction_level in 0..3 {
+    //         let mut valid_indices_counter = 0;
+    //         for (i, _) in reduced_units.iter().enumerate() {
+    //             let is_excluded_index = excluded_indices.contains(&i);
+    //             if !is_excluded_index {
+    //                 valid_indices_counter += 1;
+    //             }
+    //         }
+
+    //         // pseudo_random_select_units_indices(
+    //         //     &seed,
+    //         //     40,
+    //         //     reduced_units.len(),
+    //         //     reduction_level,
+    //         //     &excluded_indices,
+    //         // );
+    //         println!(
+    //             "Reduction #{reduction_level}:\n   Valid indices count: {valid_indices_counter} (among {} units)\n   Difference: {}\n####",
+    //             reduced_units.len(),
+    //             reduced_units.len() - valid_indices_counter,
+    //         );
+    //         assert!(valid_indices_counter >= 40);
+
+    //         let mut newly_excluded_indices: HashSet<usize> = HashSet::new();
+    //         for i in &excluded_indices {
+    //             newly_excluded_indices.insert(i % (reduced_units.len() / 4));
+    //         }
+    //         reduced_units = reduced_units.into_iter().skip(3).step_by(4).collect();
+    //         excluded_indices = newly_excluded_indices;
+    //     }
+
+    //     panic!("out");
+    // }
 
     #[test]
     fn test_fri_friendly() {
@@ -211,7 +313,7 @@ mod test {
         let p = Polynomial::<N>::new(vec![4.into()]);
         assert_eq!(p.degree(), 0);
 
-        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), 1024).unwrap();
+        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
         verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
     }
 

@@ -104,11 +104,7 @@ impl<const N: u32> Polynomial<N> {
             let (numerator, _) = master_numerator.div(&Self::new(vec![x_i.neg(), 1.into()]))?;
             let numerator_evaluation = numerator.evaluate(x_i);
 
-            let factor = y_i.mul(
-                &numerator_evaluation
-                    .inv()
-                    .expect("failed to inverse numerator evaluation"),
-            );
+            let factor = y_i.mul(&numerator_evaluation.inv()?);
             for (j, c_j) in numerator.coefficients.into_iter().enumerate() {
                 p_coefficients[j] = p_coefficients[j].add(&c_j.mul(&factor));
             }

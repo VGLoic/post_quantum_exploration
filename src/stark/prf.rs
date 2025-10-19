@@ -6,6 +6,8 @@ pub fn pseudo_random_select_units_indices(
     seed: &[u8; 32],
     target_length: usize,
     modulus: usize,
+    excluded_indices: &HashSet<usize>,
+    excluded_index: Option<usize>,
 ) -> Vec<usize> {
     let mut indices = vec![];
     let mut selected_indices: HashSet<usize> = HashSet::new();
@@ -18,7 +20,12 @@ pub fn pseudo_random_select_units_indices(
             le_bytes.clone_from_slice(chunk);
             let index = u32::from_le_bytes(le_bytes) as usize % modulus;
 
-            if !selected_indices.contains(&index) {
+            let is_excluded_specifically = excluded_index.is_some_and(|v| v % modulus == index);
+
+            if !excluded_indices.contains(&index)
+                && !selected_indices.contains(&index)
+                && !is_excluded_specifically
+            {
                 selected_indices.insert(index);
                 indices.push(index);
             }
@@ -33,12 +40,10 @@ pub fn pseudo_random_select_units_indices(
     indices
 }
 
-pub fn pseudo_random_select_indirect_proof_indices(
-    seed: &[u8; 32],
-    row_count: usize,
-    modulus: usize,
-) -> (usize, Vec<usize>) {
-    let mut indices = pseudo_random_select_units_indices(seed, row_count + 1, modulus);
-    let column_index = indices.pop().unwrap();
-    (column_index, indices)
+fn scale_index(index: usize, reduction_level: u32) -> usize {
+    let mut scaled_index = index;
+    for _ in 0..reduction_level {
+        scaled_index = 4 * scaled_index + 3;
+    }
+    scaled_index
 }
