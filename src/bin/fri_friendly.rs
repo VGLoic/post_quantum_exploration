@@ -215,7 +215,7 @@ fn check_prime(prime: u32) {
     // Computation of FRI rounds
     let mut fri_rounds = 0;
     let mut order = prime - 1;
-    while order % 4 == 0 {
+    while order.is_multiple_of(4) {
         fri_rounds += 1;
         order /= 4;
     }

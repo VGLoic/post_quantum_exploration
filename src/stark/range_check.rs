@@ -262,7 +262,7 @@ mod test {
     fn test_fri_friendly() {
         let mut reduction_counter = 0;
         let mut a = N - 1;
-        while a % 4 == 0 {
+        while a.is_multiple_of(4) {
             reduction_counter += 1;
             a /= 4;
         }

@@ -129,7 +129,7 @@ where
 
         let mut i = index;
         while i != 0 {
-            if i % 2 == 0 {
+            if i.is_multiple_of(2) {
                 selector.push(false);
             } else {
                 selector.push(true);

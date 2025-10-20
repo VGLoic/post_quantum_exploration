@@ -308,7 +308,7 @@ fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
     let mut degree = max_degree;
     let mut i = 0;
     while degree > DEGREE_THRESHOLD {
-        if degree % 4 != 0 {
+        if !degree.is_multiple_of(4) {
             return Err(anyhow!(
                 "max_degree must be a divisble by 4 until degree threshold {DEGREE_THRESHOLD} is reached"
             ));
