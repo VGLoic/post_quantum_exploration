@@ -25,13 +25,13 @@ pub fn stark_proof<const N: u32>(
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
 
-    let mut excluded_indices = HashSet::new();
+    let mut invalid_d_evaluations_indices = HashSet::new();
 
     for (i, unit) in units.iter().enumerate() {
         let p_eval = p.evaluate(unit);
         let cp_eval = Polynomial::interpolate_and_evaluate_zpoly(0..10, &p_eval);
         let d_eval = if unit.inner() <= max_degree {
-            excluded_indices.insert(i);
+            invalid_d_evaluations_indices.insert(i);
             // This value will not be checked so we can put any value we want here
             0.into()
         } else {
@@ -53,22 +53,15 @@ pub fn stark_proof<const N: u32>(
     let spot_checks = select_spot_checks(&p_commitments_tree, &d_commitments_tree, &units)
         .map_err(|e| e.context("selection of spot checks"))?;
 
-    let p_low_degree_proof = low_degree_proof(
-        p_evaluations,
-        p_commitments_tree,
-        &units,
-        max_degree,
-        None,
-        &excluded_indices,
-    )
-    .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
+    let p_low_degree_proof =
+        low_degree_proof(p_evaluations, p_commitments_tree, &units, max_degree, None)
+            .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
     let d_low_degree_proof = low_degree_proof(
         d_evaluations,
         d_commitments_tree,
         &units,
         9 * max_degree,
-        Some(p_low_degree_proof.original_commitments_root),
-        &excluded_indices,
+        Some(invalid_d_evaluations_indices),
     )
     .map_err(|e| e.context("generation of low degree proof for d polynomial"))?;
 
@@ -89,7 +82,6 @@ fn select_spot_checks<const N: u32>(
         SPOT_CHECKS_COUNT,
         units.len(),
         &HashSet::new(),
-        None,
     );
     let mut spot_checks = vec![];
     for unit_index in spot_check_indices {
@@ -112,27 +104,20 @@ pub fn verify_stark_proof<const N: u32>(
     max_degree: u32,
 ) -> Result<(), anyhow::Error> {
     let units = derive_units(root_of_unity);
-    let mut excluded_indices = HashSet::new();
+    let mut invalid_d_evaluations_indices = HashSet::new();
     for (i, unit) in units.iter().enumerate() {
         if unit.inner() <= max_degree {
-            excluded_indices.insert(i);
+            invalid_d_evaluations_indices.insert(i);
         }
     }
 
-    verify_low_degree_proof(
-        &stark_proof.p_low_degree_proof,
-        &units,
-        max_degree,
-        None,
-        &excluded_indices,
-    )
-    .map_err(|e| e.context("low degree test of p polynomial"))?;
+    verify_low_degree_proof(&stark_proof.p_low_degree_proof, &units, max_degree, None)
+        .map_err(|e| e.context("low degree test of p polynomial"))?;
     verify_low_degree_proof(
         &stark_proof.d_low_degree_proof,
         &units,
         9 * max_degree,
-        Some(stark_proof.p_low_degree_proof.original_commitments_root),
-        &excluded_indices,
+        Some(invalid_d_evaluations_indices),
     )
     .map_err(|e| e.context("low degree test of d polynomial"))?;
 
@@ -160,7 +145,6 @@ fn verify_spot_checks<const N: u32>(
         SPOT_CHECKS_COUNT,
         units.len(),
         &HashSet::new(),
-        None,
     );
 
     if spot_checks.len() != SPOT_CHECKS_COUNT {

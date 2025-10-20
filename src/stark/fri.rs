@@ -8,7 +8,7 @@ use crate::{
     stark::{
         commitment::{Commitment, Evaluation, commit},
         polynomial::Polynomial,
-        prf::pseudo_random_select_units_indices,
+        prf::{pseudo_random_select_unit_index, pseudo_random_select_units_indices},
     },
 };
 
@@ -21,42 +21,23 @@ pub fn low_degree_proof<const N: u32>(
     original_commitments_tree: MerkleTreeV2<Evaluation<N>>,
     units: &[PrimeFieldElement<N>],
     max_degree: u32,
-    seed: Option<[u8; 32]>,
-    excluded_indices: &HashSet<usize>,
+    excluded_indices: Option<HashSet<usize>>,
 ) -> Result<LowDegreeProof<N>, anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
     let mut diag_evaluations = original_values;
     let mut diagonal_commitments_tree = original_commitments_tree;
     let mut row_dimension = units.len();
-    let mut seed = seed.unwrap_or(*diagonal_commitments_tree.root_hash());
 
     let original_commitments_root = *diagonal_commitments_tree.root_hash();
 
-    let mut row_excluded_indices = excluded_indices.clone();
+    let mut row_excluded_indices = excluded_indices.unwrap_or_default();
 
     let mut indirect_commitments: Vec<IndirectCommitment<N>> = vec![];
     for reduction_level in 0..(indirect_steps_count as usize) {
-        let x_c_index = *pseudo_random_select_units_indices(
-            &seed,
-            1,
-            row_dimension,
-            &row_excluded_indices,
-            None,
-        )
-        .first()
-        .unwrap();
-        let mut column_excluded_indices = HashSet::new();
-        for i in &row_excluded_indices {
-            column_excluded_indices.insert(i % (row_dimension / 4));
-        }
-        let row_indices = pseudo_random_select_units_indices(
-            &seed,
-            ROW_COUNT,
-            row_dimension / 4,
-            &column_excluded_indices,
-            Some(x_c_index),
-        );
+        let x_c_index =
+            pseudo_random_select_unit_index(diagonal_commitments_tree.root_hash(), row_dimension);
+
         let x_c = &units[scale_index(x_c_index, reduction_level)];
 
         let mut column_evaluations = vec![];
@@ -69,17 +50,33 @@ pub fn low_degree_proof<const N: u32>(
                 row_values.push(diag_evaluations[index].v);
             }
             let row_interpolated_p =
-                Polynomial::<N>::interpolate_from_coordinates(&row_points, &row_values).ok_or(
-                    anyhow!("unable to interpolate row polynomial while evaluating column"),
-                )?;
+                Polynomial::<N>::interpolate_from_coordinates(&row_points, &row_values)
+                    .map_err(|e| e.context("interpolation of row polynomial"))?;
             column_evaluations.push(Evaluation::new(row_interpolated_p.evaluate(x_c)));
         }
         let column_commitments_tree = commit(&column_evaluations)?;
 
+        let mut column_excluded_indices = HashSet::new();
+        for i in &row_excluded_indices {
+            column_excluded_indices.insert(i % (row_dimension / 4));
+        }
+        let row_indices_with_additional_unit = pseudo_random_select_units_indices(
+            column_commitments_tree.root_hash(),
+            ROW_COUNT + 1,
+            row_dimension / 4,
+            &column_excluded_indices,
+        );
         let mut indirect_diagonal_commitments = vec![];
         let mut indirect_column_commitments = vec![];
+        let excluded_row_index = x_c_index % (row_dimension / 4);
+        for row_index in row_indices_with_additional_unit.iter().take(ROW_COUNT) {
+            let mut row_index = *row_index;
+            // We don't want to select the unique row that cross with the selected column
+            // otherwise we will end up with only four points on the line and not five
+            if row_index == excluded_row_index {
+                row_index = row_indices_with_additional_unit[ROW_COUNT];
+            }
 
-        for row_index in row_indices {
             let row_diagonal_commitments = (0..4)
                 .map(|i| {
                     let index = (row_index + i * row_dimension / 4) % row_dimension;
@@ -105,7 +102,6 @@ pub fn low_degree_proof<const N: u32>(
 
         row_dimension /= 4;
         diagonal_commitments_tree = column_commitments_tree;
-        seed = *diagonal_commitments_tree.root_hash();
         diag_evaluations = column_evaluations;
         row_excluded_indices = column_excluded_indices;
     }
@@ -115,7 +111,6 @@ pub fn low_degree_proof<const N: u32>(
         DIRECT_COMMITMENTS_COUNT,
         row_dimension,
         &row_excluded_indices,
-        None,
     );
     let direct_commitments = final_indices
         .into_iter()
@@ -133,16 +128,14 @@ pub fn verify_low_degree_proof<const N: u32>(
     proof: &LowDegreeProof<N>,
     units: &[PrimeFieldElement<N>],
     max_degree: u32,
-    seed: Option<[u8; 32]>,
-    excluded_indices: &HashSet<usize>,
+    excluded_indices: Option<HashSet<usize>>,
 ) -> Result<(), anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
-    let mut seed: [u8; 32] = seed.unwrap_or(proof.original_commitments_root);
     let mut diag_root = proof.original_commitments_root;
 
     let mut row_dimension = units.len();
-    let mut row_excluded_indices = excluded_indices.clone();
+    let mut row_excluded_indices = excluded_indices.unwrap_or_default();
 
     if indirect_steps_count as usize != proof.indirect_commitments.len() {
         return Err(anyhow!(
@@ -152,26 +145,7 @@ pub fn verify_low_degree_proof<const N: u32>(
     }
 
     for (reduction_level, indirect_commitment) in proof.indirect_commitments.iter().enumerate() {
-        let x_c_index = *pseudo_random_select_units_indices(
-            &seed,
-            1,
-            row_dimension,
-            &row_excluded_indices,
-            None,
-        )
-        .first()
-        .unwrap();
-        let mut column_excluded_indices = HashSet::new();
-        for i in &row_excluded_indices {
-            column_excluded_indices.insert(i % (row_dimension / 4));
-        }
-        let row_indices = pseudo_random_select_units_indices(
-            &seed,
-            ROW_COUNT,
-            row_dimension / 4,
-            &column_excluded_indices,
-            Some(x_c_index),
-        );
+        let x_c_index = pseudo_random_select_unit_index(&diag_root, row_dimension);
         let x_c = &units[scale_index(x_c_index, reduction_level)];
 
         if indirect_commitment.column_commitments.len()
@@ -184,6 +158,16 @@ pub fn verify_low_degree_proof<const N: u32>(
             ));
         }
 
+        let mut column_excluded_indices = HashSet::new();
+        for i in &row_excluded_indices {
+            column_excluded_indices.insert(i % (row_dimension / 4));
+        }
+        let row_indices = pseudo_random_select_units_indices(
+            &indirect_commitment.column_root,
+            ROW_COUNT,
+            row_dimension / 4,
+            &column_excluded_indices,
+        );
         for ((diag_row_commitments, associated_column_commitment), expected_row_index) in
             indirect_commitment
                 .diagonal_commitments
@@ -233,7 +217,7 @@ pub fn verify_low_degree_proof<const N: u32>(
 
             let interpolated_p =
                 Polynomial::<N>::interpolate_from_coordinates(&row_points, &row_values)
-                    .ok_or(anyhow!("failed to interpolate row polynomial"))?;
+                    .map_err(|e| e.context("interpolation of row polynomial"))?;
 
             if interpolated_p.degree() >= 4 {
                 return Err(anyhow!(
@@ -245,7 +229,6 @@ pub fn verify_low_degree_proof<const N: u32>(
 
         row_dimension /= 4;
         diag_root = indirect_commitment.column_root;
-        seed = indirect_commitment.column_root;
         row_excluded_indices = column_excluded_indices;
     }
 
@@ -254,7 +237,6 @@ pub fn verify_low_degree_proof<const N: u32>(
         DIRECT_COMMITMENTS_COUNT,
         row_dimension,
         &row_excluded_indices,
-        None,
     );
 
     if final_indices.len() != proof.direct_commitments.len() {
@@ -293,7 +275,7 @@ pub fn verify_low_degree_proof<const N: u32>(
     }
 
     let interpolated_p = Polynomial::<N>::interpolate_from_coordinates(&points, &values)
-        .ok_or(anyhow!("failed to interpolate from direct commitments"))?;
+        .map_err(|e| e.context("interpolation of polynomial for direct check"))?;
 
     if interpolated_p.degree() >= DEGREE_THRESHOLD as usize {
         return Err(anyhow!(

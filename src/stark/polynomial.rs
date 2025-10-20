@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+
 use crate::primefield::PrimeFieldElement;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -92,24 +94,25 @@ impl<const N: u32> Polynomial<N> {
     pub fn interpolate_from_coordinates(
         points: &[PrimeFieldElement<N>],
         values: &[PrimeFieldElement<N>],
-    ) -> Option<Self> {
+    ) -> Result<Self, anyhow::Error> {
         if points.is_empty() || points.len() != values.len() {
-            return Some(Self::default());
+            return Ok(Self::default());
         }
 
         let master_numerator = Self::interpolate_from_roots(points);
 
         let mut p_coefficients = vec![PrimeFieldElement::<N>::from(0); points.len()];
         for (x_i, y_i) in points.iter().zip(values) {
-            let (numerator, _) = master_numerator.div(&Self::new(vec![x_i.neg(), 1.into()]))?;
-            let numerator_evaluation = numerator.evaluate(x_i);
-
-            let factor = y_i.mul(&numerator_evaluation.inv()?);
+            let (numerator, _) = master_numerator
+                .div(&Self::new(vec![x_i.neg(), 1.into()]))
+                .ok_or(anyhow!("unable to divide master numerator with root {x_i}"))?;
+            let numerator_ev_inv = numerator.evaluate(x_i).inv().ok_or(anyhow!("failed to inverse numerator evaluation, it is a sign of duplicate points in input. This is not supported"))?;
+            let factor = y_i.mul(&numerator_ev_inv);
             for (j, c_j) in numerator.coefficients.into_iter().enumerate() {
                 p_coefficients[j] = p_coefficients[j].add(&c_j.mul(&factor));
             }
         }
-        Some(Self::new(p_coefficients))
+        Ok(Self::new(p_coefficients))
     }
 
     pub fn degree(&self) -> usize {
