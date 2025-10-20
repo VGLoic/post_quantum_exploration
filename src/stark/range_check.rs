@@ -44,7 +44,7 @@ const SPOT_CHECKS_COUNT: usize = 40;
 ///     4. we generate the low degree proof that `P` is of degree less than `MAX_DEGREE`,
 ///     5. from equation (#1), the degree of `D` is at most `9 * MAX_DEGREE`, we generate the associated low degree proof.
 ///        The proof involves a lot of pseudo random selection of unit indices, in this proof, we need to make sure we don't select among the corrupted indices where evaluations of `D` do not make sense.
-pub fn stark_proof<const N: u32>(
+pub fn generate_stark_proof<const N: u32>(
     p: Polynomial<N>,
     generator: PrimeFieldElement<N>,
     max_degree: u32,
@@ -315,7 +315,7 @@ mod test {
         let p = Polynomial::<N>::new(vec![4.into()]);
         assert_eq!(p.degree(), 0);
 
-        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        let stark_proof = generate_stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
         verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).unwrap();
     }
 
@@ -333,7 +333,7 @@ mod test {
         p = p.mul_by_scalar(&p.evaluate(&P_MAX_DEGREE.into()).inv().unwrap());
         assert_eq!(p.degree(), P_MAX_DEGREE as usize - 1);
 
-        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        let stark_proof = generate_stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
         verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).unwrap();
     }
 
@@ -348,7 +348,7 @@ mod test {
         );
         assert_eq!(p.degree(), P_MAX_DEGREE as usize);
 
-        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        let stark_proof = generate_stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
         assert!(verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).is_err());
     }
 
@@ -368,7 +368,7 @@ mod test {
         );
         assert_eq!(p.degree(), P_MAX_DEGREE as usize - 1);
 
-        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        let stark_proof = generate_stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
         assert!(verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).is_err());
     }
 }
