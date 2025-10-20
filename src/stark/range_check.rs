@@ -15,12 +15,41 @@ use crate::{
 
 const SPOT_CHECKS_COUNT: usize = 40;
 
+/// Generates a Stark proof for the following problem:
+/// ```txt
+/// The prover knows a polynomial `P` such that `0 <= P(x) <= 9 for 1 <= x <= MAX_DEGREE and P is of degree less than MAX_DEGREE`
+/// ```
+///
+/// Let us define the additional properties of the system:
+///     - N: the prime defining the prime field,
+///     - C(x): the constraint polynomial defined as `C(x) = 0 for 0 <= x <= 9`, we take `C(x) = x(x - 1)...(x - 9)`,
+///     - g: the generator of the prime field, i.e. any unit (all elements except 0) can be obtained as `a = g^k`.
+///         The codebase will first organize the space as successive powers of this generator, hence we often refer to `unit index` (0 index is `g`, index 1 is `g^2`, etc...) instead of the unit directly,
+///     - Z(x): the polymomial defined as `Z(x) = (x - 1)(x - 2)...(x - MAX_DEGREE)`.
+///
+/// With these definitions, our problem is now defined under the equation:
+/// ```
+/// C(P(x)) = Z(x) * D(x) (#1)
+/// ```
+/// Where the polymomial `D` has been introduced as the quotient of `C(P(x))` by `Z(x)`.
+///
+/// The proof generation is as follows:
+///     1. we evaluate over the entire prime field the polynomials P and D.
+///         Evaluations of D are made directly using the evaluations of `C(P)` and `Z`, we do not proceed by full interpolation.
+///         Since `C(P)` is zero within the constrained interval, we don't have the associated `D` values and we put an arbitrary value.
+///     2. evaluations of `D` and `P` are committed in two Merkle trees,
+///     3. we select a number of spot checks. A spot check will be a query in the commitments of `P` and `D`.
+///        The unit index, evaluation of P along with its Merkle proof, evaluation of D along with its Merkle proof define a spot check.
+///        The indices are pseudo randomly chosen based on the root hash of the P commitments.
+///     4. we generate the low degree proof that `P` is of degree less than `MAX_DEGREE`,
+///     5. from equation (#1), the degree of `D` is at most `9 * MAX_DEGREE`, we generate the associated low degree proof.
+///        The proof involves a lot of pseudo random selection of unit indices, in this proof, we need to make sure we don't select among the corrupted indices where evaluations of `D` do not make sense.
 pub fn stark_proof<const N: u32>(
     p: Polynomial<N>,
-    root_of_unity: PrimeFieldElement<N>,
+    generator: PrimeFieldElement<N>,
     max_degree: u32,
 ) -> Result<StarkProof<N>, anyhow::Error> {
-    let units = derive_units(root_of_unity);
+    let units = derive_units(generator);
 
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
@@ -100,10 +129,10 @@ fn select_spot_checks<const N: u32>(
 
 pub fn verify_stark_proof<const N: u32>(
     stark_proof: StarkProof<N>,
-    root_of_unity: PrimeFieldElement<N>,
+    generator: PrimeFieldElement<N>,
     max_degree: u32,
 ) -> Result<(), anyhow::Error> {
-    let units = derive_units(root_of_unity);
+    let units = derive_units(generator);
     let mut invalid_d_evaluations_indices = HashSet::new();
     for (i, unit) in units.iter().enumerate() {
         if unit.inner() <= max_degree {
@@ -209,13 +238,13 @@ pub struct SpotCheck<const N: u32> {
     pub d_proof: MerkleProof,
 }
 
-fn derive_units<const N: u32>(root: PrimeFieldElement<N>) -> Vec<PrimeFieldElement<N>> {
-    let mut units = vec![root];
+fn derive_units<const N: u32>(generator: PrimeFieldElement<N>) -> Vec<PrimeFieldElement<N>> {
+    let mut units = vec![generator];
 
-    let mut power = root.mul(&root);
-    while power != root {
+    let mut power = generator.mul(&generator);
+    while power != generator {
         units.push(power);
-        power = power.mul(&root);
+        power = power.mul(&generator);
     }
 
     units
@@ -228,18 +257,18 @@ mod test {
     use crate::stark::polynomial::Polynomial;
 
     const N: u32 = 40_961; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
-    const ROOT_OF_UNITY: u32 = 3;
+    const GENERATOR: u32 = 3;
     // const N: u32 = 12_289; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
-    // const ROOT_OF_UNITY: u32 = 11;
+    // const GENERATOR: u32 = 11;
     const P_MAX_DEGREE: u32 = 256; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
     // const N: u32 = 1_073_153; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
-    // const ROOT_OF_UNITY: u32 = 3;
+    // const GENERATOR: u32 = 3;
     // const P_MAX_DEGREE: u32 = 1_024; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
     // REMIND ME: consider distinguishing max degree and constraint ranges
 
     #[test]
     fn test_power_of_4() {
-        let root = PrimeFieldElement::<N>::from(ROOT_OF_UNITY);
+        let root = PrimeFieldElement::<N>::from(GENERATOR);
         let units = derive_units(root);
         for (i, unit) in units.iter().enumerate() {
             let expected_value = unit.exp(4);
@@ -269,7 +298,7 @@ mod test {
 
         assert!(reduction_counter > 4);
 
-        let mut root = PrimeFieldElement::<N>::from(ROOT_OF_UNITY);
+        let mut root = PrimeFieldElement::<N>::from(GENERATOR);
         let mut old_len = derive_units(root).len();
 
         for _ in 0..reduction_counter {
@@ -286,8 +315,8 @@ mod test {
         let p = Polynomial::<N>::new(vec![4.into()]);
         assert_eq!(p.degree(), 0);
 
-        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
-        verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
+        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).unwrap();
     }
 
     #[test]
@@ -304,8 +333,8 @@ mod test {
         p = p.mul_by_scalar(&p.evaluate(&P_MAX_DEGREE.into()).inv().unwrap());
         assert_eq!(p.degree(), P_MAX_DEGREE as usize - 1);
 
-        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
-        verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
+        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).unwrap();
     }
 
     #[test]
@@ -319,8 +348,8 @@ mod test {
         );
         assert_eq!(p.degree(), P_MAX_DEGREE as usize);
 
-        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
-        assert!(verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).is_err());
+        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        assert!(verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).is_err());
     }
 
     #[test]
@@ -339,7 +368,7 @@ mod test {
         );
         assert_eq!(p.degree(), P_MAX_DEGREE as usize - 1);
 
-        let stark_proof = stark_proof(p, ROOT_OF_UNITY.into(), P_MAX_DEGREE).unwrap();
-        assert!(verify_stark_proof(stark_proof, ROOT_OF_UNITY.into(), P_MAX_DEGREE).is_err());
+        let stark_proof = stark_proof(p, GENERATOR.into(), P_MAX_DEGREE).unwrap();
+        assert!(verify_stark_proof(stark_proof, GENERATOR.into(), P_MAX_DEGREE).is_err());
     }
 }
