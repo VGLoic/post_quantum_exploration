@@ -15,7 +15,7 @@ use crate::{
 
 const SPOT_CHECKS_COUNT: usize = 40;
 
-/// Generates a Stark proof for the following problem:
+/// Generates a stark proof for the following range check problem:
 /// ```txt
 /// The prover knows a polynomial `P` such that `0 <= P(x) <= 9 for 1 <= x <= MAX_DEGREE and P is of degree less than MAX_DEGREE`
 /// ```
@@ -28,7 +28,7 @@ const SPOT_CHECKS_COUNT: usize = 40;
 ///     - Z(x): the polymomial defined as `Z(x) = (x - 1)(x - 2)...(x - MAX_DEGREE)`.
 ///
 /// With these definitions, our problem is now defined under the equation:
-/// ```
+/// ```txt
 /// C(P(x)) = Z(x) * D(x) (#1)
 /// ```
 /// Where the polymomial `D` has been introduced as the quotient of `C(P(x))` by `Z(x)`.
@@ -44,6 +44,11 @@ const SPOT_CHECKS_COUNT: usize = 40;
 ///     4. we generate the low degree proof that `P` is of degree less than `MAX_DEGREE`,
 ///     5. from equation (#1), the degree of `D` is at most `9 * MAX_DEGREE`, we generate the associated low degree proof.
 ///        The proof involves a lot of pseudo random selection of unit indices, in this proof, we need to make sure we don't select among the corrupted indices where evaluations of `D` do not make sense.
+///
+/// # Arguments
+/// * `p` - the polynomial for which the proof is generated,
+/// * `generator` - the generator of the prime field,
+/// * `max_degree` - the maximum degree for the input polynomial
 pub fn generate_stark_proof<const N: u32>(
     p: Polynomial<N>,
     generator: PrimeFieldElement<N>,
@@ -127,6 +132,34 @@ fn select_spot_checks<const N: u32>(
     Ok(spot_checks)
 }
 
+/// Generates a stark proof for the following range check problem:
+/// ```txt
+/// The prover knows a polynomial `P` such that `0 <= P(x) <= 9 for 1 <= x <= MAX_DEGREE and P is of degree less than MAX_DEGREE`
+/// ```
+///
+/// Let us define the additional properties of the system:
+///     - N: the prime defining the prime field,
+///     - C(x): the constraint polynomial defined as `C(x) = 0 for 0 <= x <= 9`, we take `C(x) = x(x - 1)...(x - 9)`,
+///     - g: the generator of the prime field, i.e. any unit (all elements except 0) can be obtained as `a = g^k`.
+///         The codebase will first organize the space as successive powers of this generator, hence we often refer to `unit index` (0 index is `g`, index 1 is `g^2`, etc...) instead of the unit directly,
+///     - Z(x): the polymomial defined as `Z(x) = (x - 1)(x - 2)...(x - MAX_DEGREE)`.
+///
+/// With these definitions, our problem is now defined under the equation:
+/// ```txt
+/// C(P(x)) = Z(x) * D(x) (#1)
+/// ```
+/// Where the polymomial `D` has been introduced as the quotient of `C(P(x))` by `Z(x)`.
+///
+/// The verification is as follows:
+///     - the low degree proof for `P` will be verified, it convinces the verifier, with good probability, that `P` is of degree less than `MAX_DEGREE`,
+///     - the low degree proof for `D` will be verified, it convinces the verifier, with good probability, that `D` is of degree less than `9 * MAX_DEGREE`,
+///     - the spot checks are used in verified in order to check that the relation #1 holds at the selected points.
+/// The three checks together convince the verifier that the prover has a valid polynomial `P`.
+///
+/// # Arguments
+/// * `stark_proof` - the stark proof to verify,
+/// * `generator` - the generator of the prime field,
+/// * `max_degree` - the maximum degree for the problem polynomial.
 pub fn verify_stark_proof<const N: u32>(
     stark_proof: StarkProof<N>,
     generator: PrimeFieldElement<N>,
@@ -142,6 +175,7 @@ pub fn verify_stark_proof<const N: u32>(
 
     verify_low_degree_proof(&stark_proof.p_low_degree_proof, &units, max_degree, None)
         .map_err(|e| e.context("low degree test of p polynomial"))?;
+
     verify_low_degree_proof(
         &stark_proof.d_low_degree_proof,
         &units,
