@@ -39,11 +39,3 @@ pub fn pseudo_random_select_units_indices(
     indices.resize(target_length, 0);
     indices
 }
-
-fn scale_index(index: usize, reduction_level: u32) -> usize {
-    let mut scaled_index = index;
-    for _ in 0..reduction_level {
-        scaled_index = 4 * scaled_index + 3;
-    }
-    scaled_index
-}

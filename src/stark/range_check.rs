@@ -22,11 +22,6 @@ pub fn stark_proof<const N: u32>(
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
 
-    let mut all_points = vec![];
-    let mut all_values = vec![];
-    let mut points = vec![];
-    let mut values = vec![];
-
     let mut excluded_indices = HashSet::new();
 
     for (i, unit) in units.iter().enumerate() {
@@ -44,13 +39,6 @@ pub fn stark_proof<const N: u32>(
                     .ok_or(anyhow!("unable to find inverse of Z evaluation"))?,
             )
         };
-
-        if unit.inner() > max_degree {
-            points.push(*unit);
-            values.push(d_eval);
-        }
-        all_points.push(*unit);
-        all_values.push(d_eval);
 
         p_evaluations.push(Evaluation::new(p_eval));
         d_evaluations.push(Evaluation::new(d_eval));
