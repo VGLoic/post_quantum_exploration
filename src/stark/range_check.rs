@@ -3,14 +3,17 @@ use std::collections::HashSet;
 use anyhow::anyhow;
 
 use crate::{
+    merkletree_v2::{MerkleProof, MerkleTreeV2, verify_proof},
     primefield::PrimeFieldElement,
     stark::{
-        commitment::Evaluation,
+        commitment::{Evaluation, commit},
         fri::{LowDegreeProof, low_degree_proof, verify_low_degree_proof},
         polynomial::Polynomial,
         prf::pseudo_random_select_units_indices,
     },
 };
+
+const SPOT_CHECKS_COUNT: usize = 40;
 
 pub fn stark_proof<const N: u32>(
     p: Polynomial<N>,
@@ -44,11 +47,24 @@ pub fn stark_proof<const N: u32>(
         d_evaluations.push(Evaluation::new(d_eval));
     }
 
-    let p_low_degree_proof =
-        low_degree_proof(p_evaluations, &units, max_degree, None, &excluded_indices)
-            .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
+    let p_commitments_tree = commit(&p_evaluations)?;
+    let d_commitments_tree = commit(&d_evaluations)?;
+
+    let spot_checks = select_spot_checks(&p_commitments_tree, &d_commitments_tree, &units)
+        .map_err(|e| e.context("selection of spot checks"))?;
+
+    let p_low_degree_proof = low_degree_proof(
+        p_evaluations,
+        p_commitments_tree,
+        &units,
+        max_degree,
+        None,
+        &excluded_indices,
+    )
+    .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
     let d_low_degree_proof = low_degree_proof(
         d_evaluations,
+        d_commitments_tree,
         &units,
         9 * max_degree,
         Some(p_low_degree_proof.original_commitments_root),
@@ -57,9 +73,37 @@ pub fn stark_proof<const N: u32>(
     .map_err(|e| e.context("generation of low degree proof for d polynomial"))?;
 
     Ok(StarkProof {
+        spot_checks,
         p_low_degree_proof,
         d_low_degree_proof,
     })
+}
+
+fn select_spot_checks<const N: u32>(
+    p_commitments_tree: &MerkleTreeV2<Evaluation<N>>,
+    d_commitments_tree: &MerkleTreeV2<Evaluation<N>>,
+    units: &[PrimeFieldElement<N>],
+) -> Result<Vec<SpotCheck<N>>, anyhow::Error> {
+    let spot_check_indices = pseudo_random_select_units_indices(
+        p_commitments_tree.root_hash(),
+        SPOT_CHECKS_COUNT,
+        units.len(),
+        &HashSet::new(),
+        None,
+    );
+    let mut spot_checks = vec![];
+    for unit_index in spot_check_indices {
+        let p_commit = p_commitments_tree.select_commitment(unit_index)?;
+        let d_commit = d_commitments_tree.select_commitment(unit_index)?;
+        spot_checks.push(SpotCheck {
+            unit_index,
+            p_evaluation: p_commit.evaluation,
+            p_proof: p_commit.proof,
+            d_evaluation: d_commit.evaluation,
+            d_proof: d_commit.proof,
+        })
+    }
+    Ok(spot_checks)
 }
 
 pub fn verify_stark_proof<const N: u32>(
@@ -92,77 +136,75 @@ pub fn verify_stark_proof<const N: u32>(
     )
     .map_err(|e| e.context("low degree test of d polynomial"))?;
 
-    let p_original_commitments = stark_proof
-        .p_low_degree_proof
-        .indirect_commitments
-        .first()
-        .map(|c| &c.diagonal_commitments)
-        .ok_or(anyhow!("expected at least one indirect commitment"))?;
-    let d_original_commitments = stark_proof
-        .d_low_degree_proof
-        .indirect_commitments
-        .first()
-        .map(|c| &c.diagonal_commitments)
-        .ok_or(anyhow!("expected at least one indirect commitment"))?;
-
-    let x_c_index = *pseudo_random_select_units_indices(
+    verify_spot_checks(
         &stark_proof.p_low_degree_proof.original_commitments_root,
-        1,
-        units.len(),
-        &excluded_indices,
-        None,
+        &stark_proof.d_low_degree_proof.original_commitments_root,
+        &stark_proof.spot_checks,
+        max_degree,
+        &units,
     )
-    .first()
-    .unwrap();
-    let mut column_excluded_indices = HashSet::new();
-    for i in &excluded_indices {
-        column_excluded_indices.insert(i % (units.len() / 4));
-    }
-    let expected_row_unit_indices = pseudo_random_select_units_indices(
-        &stark_proof.p_low_degree_proof.original_commitments_root,
-        40,
-        units.len() / 4,
-        &column_excluded_indices,
-        Some(x_c_index),
+    .map_err(|e| e.context("spot checks verification"))?;
+
+    Ok(())
+}
+
+fn verify_spot_checks<const N: u32>(
+    original_p_commitments_root: &[u8; 32],
+    original_d_commitments_root: &[u8; 32],
+    spot_checks: &[SpotCheck<N>],
+    max_degree: u32,
+    units: &[PrimeFieldElement<N>],
+) -> Result<(), anyhow::Error> {
+    let expected_spot_check_indices = pseudo_random_select_units_indices(
+        original_p_commitments_root,
+        SPOT_CHECKS_COUNT,
+        units.len(),
+        &HashSet::new(),
+        None,
     );
 
-    for ((p_row_commitments, d_row_commitments), expected_row_index) in p_original_commitments
-        .iter()
-        .zip(d_original_commitments)
-        .zip(expected_row_unit_indices)
-    {
-        for (p_commitment, d_commitment) in p_row_commitments.iter().zip(d_row_commitments) {
-            if p_commitment.unit_index != d_commitment.unit_index {
+    if spot_checks.len() != SPOT_CHECKS_COUNT {
+        return Err(anyhow!(
+            "invalid number of spot checks, got {}, expected {SPOT_CHECKS_COUNT}",
+            spot_checks.len()
+        ));
+    }
+
+    for (spot_check, expected_unit_index) in spot_checks.iter().zip(expected_spot_check_indices) {
+        if spot_check.unit_index != expected_unit_index {
+            return Err(anyhow!(
+                "invalid unit index for spot check, got {}, expected {expected_unit_index}",
+                spot_check.unit_index
+            ));
+        }
+
+        verify_proof(
+            original_p_commitments_root,
+            &spot_check.p_evaluation,
+            &spot_check.p_proof,
+        )?;
+        verify_proof(
+            original_d_commitments_root,
+            &spot_check.d_evaluation,
+            &spot_check.d_proof,
+        )?;
+
+        let unit = &units[expected_unit_index];
+        let cp_eval = Polynomial::interpolate_and_evaluate_zpoly(0..10, &spot_check.p_evaluation.v);
+        if unit.inner() <= max_degree {
+            if cp_eval != 0.into() {
                 return Err(anyhow!(
-                    "non matching index for original data check, got index {} for p and index {} for d",
-                    p_commitment.unit_index,
-                    d_commitment.unit_index
+                    "evaluation of constraint polynomial is not zero within constraint limits, got {cp_eval}"
                 ));
             }
-            let unit = &units[p_commitment.unit_index];
-            let cp_eval =
-                Polynomial::interpolate_and_evaluate_zpoly(0..10, &p_commitment.evaluation.v);
-            if unit.inner() <= max_degree {
-                if cp_eval != 0.into() {
-                    return Err(anyhow!(
-                        "evaluation of constraint polynomial is not zero within constraint limits, got {cp_eval}"
-                    ));
-                }
-            } else {
-                let z_eval = Polynomial::<N>::interpolate_and_evaluate_zpoly(1..=max_degree, unit);
-                let rhs = z_eval.mul(&d_commitment.evaluation.v);
-                if rhs != cp_eval {
-                    return Err(anyhow!(
-                        "original commitments do not respect the equation cp(p) = z * d, rhs is {rhs} and lfs is {cp_eval}"
-                    ));
-                }
+        } else {
+            let z_eval = Polynomial::<N>::interpolate_and_evaluate_zpoly(1..=max_degree, unit);
+            let rhs = z_eval.mul(&spot_check.d_evaluation.v);
+            if rhs != cp_eval {
+                return Err(anyhow!(
+                    "original commitments do not respect the equation cp(p) = z * d, rhs is {rhs} and lfs is {cp_eval}"
+                ));
             }
-        }
-        if p_row_commitments[0].unit_index != expected_row_index {
-            return Err(anyhow!(
-                "invalid value for unit index in row commitment, expected {expected_row_index}, got {}",
-                p_row_commitments[0].unit_index
-            ));
         }
     }
 
@@ -170,8 +212,17 @@ pub fn verify_stark_proof<const N: u32>(
 }
 
 pub struct StarkProof<const N: u32> {
+    pub spot_checks: Vec<SpotCheck<N>>,
     pub p_low_degree_proof: LowDegreeProof<N>,
     pub d_low_degree_proof: LowDegreeProof<N>,
+}
+
+pub struct SpotCheck<const N: u32> {
+    pub unit_index: usize,
+    pub p_evaluation: Evaluation<N>,
+    pub p_proof: MerkleProof,
+    pub d_evaluation: Evaluation<N>,
+    pub d_proof: MerkleProof,
 }
 
 fn derive_units<const N: u32>(root: PrimeFieldElement<N>) -> Vec<PrimeFieldElement<N>> {
@@ -222,56 +273,6 @@ mod test {
             );
         }
     }
-
-    // REMIND ME NEED TO DO SOMETHING?
-    // #[test]
-    // fn test_indices_selection() {
-    //     let root = PrimeFieldElement::<N>::from(ROOT_OF_UNITY);
-    //     let units = derive_units(root);
-
-    //     let seed: [u8; 32] = rand::random();
-
-    //     let mut excluded_indices = HashSet::new();
-    //     for (i, unit) in units.iter().enumerate() {
-    //         if unit.inner() <= P_MAX_DEGREE {
-    //             excluded_indices.insert(i);
-    //         }
-    //     }
-
-    //     let mut reduced_units = units;
-    //     for reduction_level in 0..3 {
-    //         let mut valid_indices_counter = 0;
-    //         for (i, _) in reduced_units.iter().enumerate() {
-    //             let is_excluded_index = excluded_indices.contains(&i);
-    //             if !is_excluded_index {
-    //                 valid_indices_counter += 1;
-    //             }
-    //         }
-
-    //         // pseudo_random_select_units_indices(
-    //         //     &seed,
-    //         //     40,
-    //         //     reduced_units.len(),
-    //         //     reduction_level,
-    //         //     &excluded_indices,
-    //         // );
-    //         println!(
-    //             "Reduction #{reduction_level}:\n   Valid indices count: {valid_indices_counter} (among {} units)\n   Difference: {}\n####",
-    //             reduced_units.len(),
-    //             reduced_units.len() - valid_indices_counter,
-    //         );
-    //         assert!(valid_indices_counter >= 40);
-
-    //         let mut newly_excluded_indices: HashSet<usize> = HashSet::new();
-    //         for i in &excluded_indices {
-    //             newly_excluded_indices.insert(i % (reduced_units.len() / 4));
-    //         }
-    //         reduced_units = reduced_units.into_iter().skip(3).step_by(4).collect();
-    //         excluded_indices = newly_excluded_indices;
-    //     }
-
-    //     panic!("out");
-    // }
 
     #[test]
     fn test_fri_friendly() {

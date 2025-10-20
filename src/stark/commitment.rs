@@ -3,7 +3,7 @@ use crate::{
     primefield::PrimeFieldElement,
 };
 
-pub fn build_tree<const N: u32>(
+pub fn commit<const N: u32>(
     values: &[Evaluation<N>],
 ) -> Result<MerkleTreeV2<Evaluation<N>>, anyhow::Error> {
     let mut depth: u8 = 2;

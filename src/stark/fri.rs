@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use anyhow::anyhow;
 
 use crate::{
-    merkletree_v2::verify_proof,
+    merkletree_v2::{MerkleTreeV2, verify_proof},
     primefield::PrimeFieldElement,
     stark::{
-        commitment::{Commitment, Evaluation, build_tree},
+        commitment::{Commitment, Evaluation, commit},
         polynomial::Polynomial,
         prf::pseudo_random_select_units_indices,
     },
@@ -17,7 +17,8 @@ const DIRECT_COMMITMENTS_COUNT: usize = 80;
 const ROW_COUNT: usize = 40;
 
 pub fn low_degree_proof<const N: u32>(
-    values: Vec<Evaluation<N>>,
+    original_values: Vec<Evaluation<N>>,
+    original_commitments_tree: MerkleTreeV2<Evaluation<N>>,
     units: &[PrimeFieldElement<N>],
     max_degree: u32,
     seed: Option<[u8; 32]>,
@@ -25,9 +26,7 @@ pub fn low_degree_proof<const N: u32>(
 ) -> Result<LowDegreeProof<N>, anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
 
-    let original_commitments_tree = build_tree(&values)?;
-
-    let mut diag_evaluations = values;
+    let mut diag_evaluations = original_values;
     let mut diagonal_commitments_tree = original_commitments_tree;
     let mut row_dimension = units.len();
     let mut seed = seed.unwrap_or(*diagonal_commitments_tree.root_hash());
@@ -75,7 +74,7 @@ pub fn low_degree_proof<const N: u32>(
                 )?;
             column_evaluations.push(Evaluation::new(row_interpolated_p.evaluate(x_c)));
         }
-        let column_commitments_tree = build_tree(&column_evaluations)?;
+        let column_commitments_tree = commit(&column_evaluations)?;
 
         let mut indirect_diagonal_commitments = vec![];
         let mut indirect_column_commitments = vec![];
@@ -142,7 +141,6 @@ pub fn verify_low_degree_proof<const N: u32>(
     let mut seed: [u8; 32] = seed.unwrap_or(proof.original_commitments_root);
     let mut diag_root = proof.original_commitments_root;
 
-    // let mut units_in_row = units.to_owned();
     let mut row_dimension = units.len();
     let mut row_excluded_indices = excluded_indices.clone();
 
