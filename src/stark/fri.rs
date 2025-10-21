@@ -16,7 +16,191 @@ const DEGREE_THRESHOLD: u32 = 64;
 const DIRECT_COMMITMENTS_COUNT: usize = 80;
 const ROW_COUNT: usize = 40;
 
-pub fn low_degree_proof<const N: u32>(
+/// Generates a low degree proof for a set of a polynomial evaluations
+///
+/// I.e. generates a proof that the set of evaluations is associated, with high probability, to a polynomial of degree less than an input.
+///
+/// This function uses a [FRI](https://vitalik.eth.limo/general/2017/11/22/starks_part_2.html) like algorithm.
+///
+/// # Arguments
+///
+/// * `original_values` - the list of evaluations of the polynomial for which we provide the proof, the evaluations must be ordered as the successive powers of the generator of the prime field,
+/// * `original_commitments_tree` - the Merkle tree formed from the list of evaluations, the coherence with the original evaluations input is not checked in the function,
+/// * `units` - the list of units, ordered as successive powers of the generator of the prime field,
+/// * `max_degree` - the degree under which the polynomial must belong,
+/// * `excluded_indices` - a list of unit indices that should not be selected during proof generation.
+///
+/// # Implementation
+///
+/// For a more detailled version, please consult the README of the module.
+///
+/// Let us state two important remarks:
+/// 1. this algorithm will only work with prime field containing a sufficiently large subgroup of order 2^k.
+///    More concretely, for `N` the prime, we need prime field such that `N - 1` is divisible by the factor `4` as much as possible.
+///    This is a required ingredient for the process of `space reduction` during the indirect proofs generation step.
+/// 2. let us define `g` the generator of our prime field. The generator is used in order to derive the units as successive power of `g`.
+///    I.e. `units = [g, g^2, g^3, ... , g^(N-1)]`.
+///    The input evaluations are done over these "ordered" units.
+///
+/// The function starts by preparing for the recursive part:
+/// - the number of indirect steps is pre-computed,
+/// - the diagonal evaluations are instantiated as the original evaluations,
+/// - the diagonal commitments are instantiated as the original commitments, the function does not check that these commitments match with the evaluations,
+/// - the row dimension is instantiated as the number of units,
+/// - the excluded indices along the row is instantiated with the provided list, if any,
+/// - the original commitment root hash is saved for the output proof.
+///
+/// ## Indirect steps
+///
+/// At each step:
+/// - the diagonal commitment root hash is used in order to pseudo randomly select the unit describing the column: `x_c`,
+/// - the diagonal polymomial is evaluated as a binomial polynomial along the column `x = x_c`, for each unit in the column:
+///     - the four diagonal evaluations on this row are selected using their indices: `column_unit_index + i * (N-1)/4, i = 0, 1, 2, 3`,
+///     - the polynomial of the row is interpolated using Lagrange interpolation,
+///     - the polynomial is evaluated at `x = x_c`,
+/// - the column evaluations are committed,
+/// - the excluded indices of the column are computed from the ones of the row: if a column index is on a row with an excluded index, it is excluded.
+///   In practice, it means mapping `index -> index % (row_dimension / 4)`,
+/// - the root of the column commit is used in order to pseudo randomly select indices of the rows that will be added to the proof for this step.
+///   Indices must not be in the list of exluded ones. An additional index is taken in case we select the row crossing the diagonal at `x = x_c`, if this is the case, we remove this row and use the additional one instead,
+/// - for each selected row, we select the four diagonal evaluations and their Merkle roots, we also select the associated column evaluation and its Merkle proof, these five commitments form the proof for the row of the indirect step,
+/// - the next step is prepared:
+///     - the row dimension becomes the column dimension, i.e. it is divided by 4,
+///     - the diagonal evaluations and commitments are set to the column ones,
+///     - the row excluded indices are set to the previously computed ones for the column
+///
+/// We end up with a list of indirect proof, each defined as a list of proof for a row, each defined as five proven evaluations:
+/// - 4 coming from the diagonal evaluations,
+/// - 1 coming from the column evaluation.
+///
+/// ## Final and direct step
+///
+/// - the final indices are pseudo randomly selected from the lastly defined diagonal commitments, these indices must not contain any lastly defined excluded indices,
+/// - for each index, we select the evaluation with its Merkle proof.
+///
+/// ## Proof content
+///
+/// The proof is simply build as:
+/// - the list of indirect proofs,
+/// - the direct commitments,
+/// - the root hash of the original commitments.
+///
+/// ## Proof generation
+///
+/// A direct way to proove a degree `<D` of a polynomial is to provide more than `D` evaluations/queries of it to the verifier.
+/// Additionally, the whole set of evaluations is committed by the prover in a Merkle tree, every evaluation is then accompanied by its Merkle proof.
+/// The verifier could then interpolate the points and evaluations and check that it leads to a polynomial of degree less than D. It would also check that the Merkle proofs are correct.
+///
+/// It would be costly to do that in our case so we come up with two phases:
+/// 1. a suite of *indirect proofs*, each indirect proof allows us to divide by a factor 4 the degree of the polynomial to proove while generating the associated proof that this step is well done,
+/// 2. once we had enough indirect proofs, the degree of the resulting polynomial is very low and below a threshold we defined. We then use a *direct proof* to proove that this resulting polynomial is indeed of degree below our threshold.
+///
+/// Let us state two important remarks:
+/// 1. this algorithm will only work with prime field containing a sufficiently large subgroup of order 2^k.
+///    More concretely, for `N` the prime, we need prime field such that `N - 1` is divisible by the factor `4` as much as possible.
+///    This is a required ingredient for the process of `space reduction` during the indirect proofs generation step.
+/// 2. let us define `g` the generator of our prime field. The generator is used in order to derive the units as successive power of `g`.
+///    I.e. `units = [g, g^2, g^3,... , g^(N-1)`.
+///    The input evaluations are done over these "ordered" units.
+///
+/// ## Indirect proofs
+///
+/// ### Going to a square
+///
+/// Instead of considering our polynomial over the units `P(x), x ∈ { units }`, we define the polynomial G(x, y) such that
+/// ```txt
+/// G(x, x^4) = P(x)
+/// ```
+/// The polynomial `G` leaves on a square: `G(x, y), x ∈ { units }, y ∈ { units^4 }` where the diagonal values are the evaluations of P(x).
+///
+/// For instance, `P(x) = x^6 + 4x^5 + 18x^4 + 7x^3 + x^2 + 98x + 8`, then `G(x, y) = yx^2 + 4xy + 18y + 7x^3 + x^2 + 98x + 8`
+///
+/// Taking a look at the values on square, we can observe:
+/// - at a `y` value fixed, we are on a row, and the evaluation of `G` on this row is a degree <4 polynomial,
+/// - at a `x` value fixed, we are on a column, and the evaluation of `G` on this column is a degree <(D / 4),
+///
+/// **This an intermediate thinking step towards the final approach:** as a prover we will:
+/// - evaluate G over the whole square,
+/// - commit the evaluations with a Merkle tree,
+/// - sample a bunch of rows, pick 5 evaluations on each row, one being the diagonal evaluation,
+/// - sample a bunch of columns, pick more than (D / 4) evaluations on each column, one being the diagonal evaluation,
+/// - pick all the associated Merkle proofs,
+/// - send this to the verifier.
+///
+/// With this, the verifier can actually be convinced that:
+/// - most rows are described by polynomials of degree <4,
+/// - most columns are described by polynomials of degree <D/4,
+/// - most points on the diagonal belong to these two kinds of polynomials.
+///
+/// As a consequence, the verifier is convinced that: most diagonal points lie on a <D degree polynomial.
+///
+/// This describes an indirect proof for the degree test. The proof can actually be smaller than a direct proof but we do better in the next part.
+///
+/// ### Going from the square to a rectangle
+///
+/// We have chosen in a smart way our prime field: in such a way that `N - 1` is divisible by 4 (at least once for now).
+/// A property of such fields is that the image of the function `x -> x^4` is small: if we apply `x -> x^4` to our `N - 1` units, we actually end up with `(N - 1) / 4` possible results only.
+///
+/// As a consequence, in our square, the column formed by `y ∈ { units^4 }` is smaller than expected, actually 4 times smaller than a row.
+/// **So our square actually becomes a rectangle.* The previously described approach still work, it is just that we can skip a bunch of evaluations because our space just got smaller.
+///
+/// ### An observation on the diagonal
+///
+/// The diagonal will also be wrapped, it will reach the "bottom" of the rectangle and then re-start at the top.
+/// This wrapping will actually occur 4 times.
+/// As a consequence, the diagonal evaluations of `P` contains 4 points on each row.
+///
+/// For instance, the row defined by `y = g^4` has the following four points:
+/// ```txt
+/// - x = g, x^4 = g^4, P(x) = G(g, g^4)
+/// - x = g^(1 + (N-1)/4), x^4 = g^4 * g^(N-1) = g^4, P(x) = G(g^(1 + (N-1)/4), g^4)
+/// - x = g^(1 + 2 * (N-1)/4), x^4 = g^4 * g^2(N-1) = g^4, P(x) = G(g^(1 + 2 * (N-1)/4), g^4),
+/// - x = g^(1 + 3 * (N-1)/4), x^4 = g^4 * g^3(N-1) = g^4, P(x) = G(g^(1 + 3 * (N-1)/4), g^4),
+/// ```
+///
+/// ### Limiting evaluations to the bare minimum
+///
+/// Instead of evaluating and committing to the whole rectangle and then sending a bunch of rows and columns to the verifier, we will take a drastically less consuming approach:
+///
+/// The prover will:
+/// - evaluate and commit to the diagonal, i.e. P(x) where x ∈ { units },
+/// - evaluate and commit to one column, i.e. G(x, y) where x = x_c fixed and y ∈ { units^4 },
+/// - build the proof:
+///     - select rows, for each row, the four matching diagonal points are added and the matching column point is added,
+///     - select enough evaluations of the column to do a direct degree proof of the `G` polynomial on the column,
+///
+/// The verifier will:
+/// - verify that each row is a degree <4 polynomial,
+/// - verify that the column is a degree <D/4 polynomial,
+/// - verify all the Merkle proofs.
+///
+/// With this, the verifier is convinced:
+/// - most points on the diagonal form rows described by polynomials of degree <4,
+/// - the column is described by a polynomial of degree <N/4.
+///
+/// As a consequence, the verifier is convinced that: most diagonal points lie on a <D degree polynomial.
+///
+/// Remark: I am not very convinced by this part.
+///
+///
+/// ### Going recursive
+///
+/// We started with a polynomial of a degree <D and we have a proof about two polynomials, one of degree <4 and one of degree <D/4.
+/// The degree <4 is very fast to verify as it implies only 5 evaluations, the degree <D/4 may still be long to verify.
+///
+/// Now, we have chosen our space in such a way that it is divisible by 4 a few times at least.
+/// This gives us the opportunity to repeat the above process for the polynomial `P_1(x) = G(x_c, x), x ∈ { units^4 }` with now original degree of <D/4.
+/// We can consider the rectangle `(x, y), x ∈ { units^4 }, y ∈ { units^8 }` and define the polynomial `G_1(x, y)` such that `G_1(x, x^4) = P_1(x)`. So the column of the last iteration is the diagonal of the new iteration, and at each iteration, the degree of the column polynomial is divided by 4.
+/// The process stops when the diagonal has a degree low enough to allow a direct proof, i.e. simply providing enough evaluations to inerpolate and check the degree.
+///
+/// The prover will now: check if the degree to prove is above a fixed threshold
+///     - if no: the prover selects enough, e.g. more than degree threshold, evaluations with their Merkle roots, it adds these to the proof,
+///     - if yes:
+///         - the prover will select a column point,
+///         - it evaluates the polynomial over the column and commit to these evaluations,
+///         - it selects rows, add the associated diagonal evaluations with their Merkle proofs, it also add the matching evaluation on the column with its Merkle proof, all of this is added to the proof,
+///         - the column evaluations is used as starting point for the process again.
+pub fn generates_low_degree_proof<const N: u32>(
     original_values: Vec<Evaluation<N>>,
     original_commitments_tree: MerkleTreeV2<Evaluation<N>>,
     units: &[PrimeFieldElement<N>],
@@ -124,6 +308,67 @@ pub fn low_degree_proof<const N: u32>(
     })
 }
 
+/// Verifies a low degree proof
+///
+/// I.e. verify that a proof matches, with high probability, with a polynomial of degree less than an input.
+///
+/// This function uses a [FRI](https://vitalik.eth.limo/general/2017/11/22/starks_part_2.html) like algorithm.
+///
+/// # Arguments
+///
+/// * `proof` - the low degree proof. It contains:
+///     - the original commitments root hash,
+///     - the list of indirect commitments,
+///     - the list of direct commitments,
+/// * `units` - the list of units, ordered as successive powers of the generator of the prime field,
+/// * `max_degree` - the degree under which the polynomial must belong,
+/// * `excluded_indices` - a list of unit indices that should not be selected during proof generation.
+///
+/// # Implementation
+///
+/// For a more detailled version, please consult the README of the module.
+///
+/// Let us state two important remarks:
+/// 1. this algorithm will only work with prime field containing a sufficiently large subgroup of order 2^k.
+///    More concretely, for `N` the prime, we need prime field such that `N - 1` is divisible by the factor `4` as much as possible.
+///    This is a required ingredient for the process of `space reduction` during the indirect proofs generation step.
+/// 2. let us define `g` the generator of our prime field. The generator is used in order to derive the units as successive power of `g`.
+///    I.e. `units = [g, g^2, g^3, ... , g^(N-1)]`.
+///    The input evaluations are done over these "ordered" units.
+///
+/// The function starts by preparing for the verification of the recursive/indirect part:
+/// - the number of expected indirect steps is pre-computed,
+/// - the diagonal commitment root hash is instantiated with the one of the original commitments,
+/// - the row dimension is instantiated as the number of units,
+/// - the excluded indices along the row is instantiated with the provided list, if any,
+///
+/// ## Verification of indirect steps
+///
+/// For each step:
+/// - the diagonal commitment root hash is used in order to pseudo randomly select the unit describing the column: `x_c`,
+/// - the excluded indices of the column are computed from the ones of the row: if a column index is on a row with an excluded index, it is excluded.
+///   In practice, it means mapping `index -> index % (row_dimension / 4)`,
+/// - the root of the column commit is used in order to pseudo randomly select indices of the rows that will be added to the proof for this step.
+///   Indices must not be in the list of exluded ones. An additional index is taken in case we select the row crossing the diagonal at `x = x_c`, if this is the case, we remove this row and use the additional one instead,
+/// - for each row:
+///     - the units coming from the diagonal commits are verified to be on the same row as the expected one,
+///     - the Merkle proofs of the diagonal commits are verified against the diagonal commitment root hash,
+///     - the unit of the associated column commit is verified against the expected row,
+///     - the Merkle proof of the associated column commit is verified against the column commitment root hash,
+///     - the four evaluations of the diagonal at specified units added with the column evaluation at `x_c` are used for a polynomial interpolation,
+///     - the interpolated polynomial must be of degree less than 4,
+/// - the next step is prepared:
+///     - the row dimension becomes the column dimension, i.e. it is divided by 4,
+///     - the diagonal evaluations and commitments are set to the column ones,
+///     - the row excluded indices are set to the previously computed ones for the column
+///
+/// ## Verification of the direct step
+///
+/// - the expected final indices are pseudo randomly selected from the lastly defined diagonal commitments, these indices must not contain any lastly defined excluded indices,
+/// - for each index:
+///     - the index is verified against the expected one,
+///     - the Merkle proof is verified against the lastly defined diagonal commitment root hash,
+/// - the list of evaluations is interpolated, the resulting polynomial must be of degree less than the set threshold.
 pub fn verify_low_degree_proof<const N: u32>(
     proof: &LowDegreeProof<N>,
     units: &[PrimeFieldElement<N>],
@@ -162,19 +407,26 @@ pub fn verify_low_degree_proof<const N: u32>(
         for i in &row_excluded_indices {
             column_excluded_indices.insert(i % (row_dimension / 4));
         }
-        let row_indices = pseudo_random_select_units_indices(
+        let row_indices_with_additional_unit = pseudo_random_select_units_indices(
             &indirect_commitment.column_root,
-            ROW_COUNT,
+            ROW_COUNT + 1,
             row_dimension / 4,
             &column_excluded_indices,
         );
+        let excluded_row_index = x_c_index % (row_dimension / 4);
         for ((diag_row_commitments, associated_column_commitment), expected_row_index) in
             indirect_commitment
                 .diagonal_commitments
                 .iter()
                 .zip(&indirect_commitment.column_commitments)
-                .zip(row_indices)
+                .zip(&row_indices_with_additional_unit)
         {
+            let mut expected_row_index = *expected_row_index;
+            // We don't want to select the unique row that cross with the selected column
+            // otherwise we will end up with only four points on the line and not five
+            if expected_row_index == excluded_row_index {
+                expected_row_index = row_indices_with_additional_unit[ROW_COUNT];
+            }
             let expected_four_exp_value =
                 &units[scale_index(expected_row_index, reduction_level)].exp(4);
 

@@ -7,7 +7,7 @@ use crate::{
     primefield::PrimeFieldElement,
     stark::{
         commitment::{Evaluation, commit},
-        fri::{LowDegreeProof, low_degree_proof, verify_low_degree_proof},
+        fri::{LowDegreeProof, generates_low_degree_proof, verify_low_degree_proof},
         polynomial::Polynomial,
         prf::pseudo_random_select_units_indices,
     },
@@ -88,9 +88,9 @@ pub fn generate_stark_proof<const N: u32>(
         .map_err(|e| e.context("selection of spot checks"))?;
 
     let p_low_degree_proof =
-        low_degree_proof(p_evaluations, p_commitments_tree, &units, max_degree, None)
+        generates_low_degree_proof(p_evaluations, p_commitments_tree, &units, max_degree, None)
             .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
-    let d_low_degree_proof = low_degree_proof(
+    let d_low_degree_proof = generates_low_degree_proof(
         d_evaluations,
         d_commitments_tree,
         &units,
