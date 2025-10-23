@@ -105,7 +105,7 @@ Let us consider the new proof system:
 - Alice computes the evaluations of `P` and `D` over the range 1 to 1_000_000_000. Since we become a bit more formal, Alice also takes all the evaluations and put it in a Merkle tree as a way to commit to them,
 - Bob selects points at which he wants the evaluations and ask Alice to give him,
 - Alice gives the asked evaluations, the Merkle proofs and the root hash of the Merkle tree,
-- Bob verifies the Merkle proofs and verifies that the equation `C(P(x)) = Z(x) * D(x)` holds at the selected point.
+- Bob verifies the Merkle proofs and verifies that the equation `C(P(x)) = Z(x) * D(x)` holds at the selected points.
 
 We blew up the size of the space but in exchange, we know that if changes to `P` or `D` happen, it will have huge impact on the system.
 
@@ -122,9 +122,9 @@ The process can be made non interactive using the [Fiat-Shamir heuristic](https:
 
 We saw that the previous version was quite strong against modification of the original data, i.e. if something is changed in the original data, the oversampling will differ and the chance of detecting an error will blow up.
 
-Now, what would happen if the prover modifies directly the oversampled data set. It can easily do so in a way that still respect the equation `C(P(x)) = D(x) * Z(x)`: a prover can simply choose a random number `p_cheat`, set `p_cheat` at the evaluation of `P` for a particular point `x_cheat`, and set `d_cheat = C(p_cheat) / Z(x_cheat)` at the evaluation of `D` for the point `x_cheat`. Our test above would actually not catch it because all we do is check that the relation holds.
+Now, what would happen if the prover modifies directly the data set without relying on any polynomials. It can easily do so in a way that still respect the equation `C(P(x)) = D(x) * Z(x)`: a prover can simply choose a random number `p_cheat`, set `p_cheat` at the evaluation of `P` for a particular point `x_cheat`, and set `d_cheat = C(p_cheat) / Z(x_cheat)` at the evaluation of `D` for the point `x_cheat`. Our test above would actually not catch it because all we do is check that the relation holds.
 
-What we don't do is ensure that the evaluations of `P` correspond to a polynomial of degree less than 1_000_000. This attack is actually hitting there because by modifying the oversampled data, we are replacing a derived evaluation by an additional constraint, hence actually most probably increasing the degree of P (at least the P that would satisfy all the evaluation).
+What we don't do is ensure that the evaluations of `P` correspond to a polynomial of degree less than 1_000_000. This attack is actually hitting there because by modifying the data directly, we are replacing a supposedly derived evaluation by an additional constraint, hence actually most probably increasing the degree of P (at least the P that would satisfy all the evaluation).
 
 The heart of the stark is actually focusing on this new aspect: proving that the polynomial behind the proof has a degree less than a fixed degree.
 
@@ -142,9 +142,9 @@ In order to be consistent with the process, the proof must be **succint, complet
 
 The verifier has access to the whole set of evaluations, meaning it can ask the prover for it.
 
-If the verifier asks for all the evaluations, it can use `D` points in order to build a polynomial of order less than `D`(`<D`). It can then check that the other evaluations are consistent with the interpolated polynomials. In this case, we say that we have an infinite number of *queries*. It is perfectly complete and sound but it is definitely not succint.
+If the verifier asks for all the evaluations, it can use `D` points in order to build a polynomial of order less than `D`(`<D`). It can then check that the other evaluations are consistent with the interpolated polynomial. In this case, we say that we have an infinite number of *queries*. It is perfectly complete and sound but it is definitely not succint.
 
-Let's try to decrease a bit the number of queries to see how the system behave. We need in any case `D` evaluations in order to interpolate the polynomial, so at least `D` queries. Let us define `k` the additional number of queries we make: in total we make `D + k` queries.
+Let's try to decrease a bit the number of queries to see how the system behaves. We need in any case `D` evaluations in order to interpolate the polynomial, so at least `D` queries. Let us define `k` the additional number of queries we make: in total we make `D + k` queries.
 
 If we consider a data set with a proportion `p` of points that do not belong to the same polynomial, the probability the test passes with `D + k` queries is `(1 - p)^k`.
 
@@ -198,9 +198,9 @@ The process is definitively *complete*. I would not be able to analyze its soudn
 
 Let's say for the exercise, `k = 10` and the number of queries rows and columns are 60.
 
-For the prover, one evaluation is `O(D)`, we make evaluations over the square, therefore the total is `O(DN^2)`. It is a good thing we care about the verifier because this is gigantic.
+For the prover, one evaluation is `O(D)`, we make evaluations over the square, therefore the total is `O(DN^2)`. It is a good thing we care about the verifier because the complexity on the prover's side is gigantic.
 
-For the verifier, we do and 60 interpolations of degree <1000 polynomials and 60 * 1010 Merkle proof verifications. An interpolation using the fast Fourier transform is `O(nlog(n))` and a Merkle proof verification is `O(log(n))`, so we get something like `~60 O(1000log(1000)) + 60 * 1010log(N^2)`. This looks sublinear to me!
+For the verifier, we do 60 interpolations of degree <1000 polynomials and 60 * 1010 Merkle proof verifications. An interpolation using the fast Fourier transform is `O(nlog(n))` and a Merkle proof verification is `O(log(n))`, so we get something like `~60 O(1000log(1000)) + 60 * 1010log(N^2)`. This looks sublinear to me!
 
 This describes our first indirect proof, now let's try to improve it.
 
@@ -224,11 +224,10 @@ I simply want to pin point two important aspects here.
 
 The square and the bivariate polynomial G we defined earlier were using the function `x -> x^1_000`, because I know what will come after, let us change this to `x -> x^4`. As a consequence, the rows are now described by polynomials with degree less than 4, the columns are described by polynomials of degree less than `D/4`. The spirit of the previously described proof system is unchanged apart that rows are easier to verify but columns are harder.
 
-For the rest of the notes, we will take care of choosing a prime field with a prime `N` such that `N - 1` is divisible by 4 as much as possible.
-
-Finally, this `N` becomes the upper limit of our evaluations range. In practice, if we want something close to 1_000_000_000, we will find a prime number close to 1_000_000_000 (and divisible by 4 a few times).
-
-The evaluations from 1 to `N` can be ordered using the units, as successive power of our generators, e.g. the first evaluation is for `x = g`, the second is `x = g^2`, etc...
+A few points related to implementation:
+- for the rest of the notes, we will take care of choosing a prime field with a prime `N` such that `N - 1` is divisible by 4 as much as possible,
+- the `N` becomes the upper limit of our evaluations range. In practice, if we want something close to 1_000_000_000, we will find a prime number close to 1_000_000_000 (and divisible by 4 a few times),
+- the evaluations from 1 to `N` can be ordered using the units, as successive power of our generators, e.g. the first evaluation is for `x = g`, the second is `x = g^2`, etc...
 
 And going back to our square, the column is formed by `y ∈ { units^4 }`. And this is actually 4 times smaller than the number of units, so the column direction of our square just shrank and we now have a rectangle instead of a square.
 
@@ -238,7 +237,7 @@ In terms of succintness, we did not move on the verifier side, however we simpli
 
 ### An observation on the diagonal
 
-The diagonal will also be wrapped, it will reach the "bottom" of the rectangle and then re-start at the top.
+Since the square became a rectangle, the diagonal has interesting properties. It is actually wrapped, it will reach the "bottom" of the rectangle and then re-start at the top.
 This wrapping will actually occur 4 times.
 As a consequence, the diagonal evaluations of `P` contains 4 points on each row.
 
@@ -285,14 +284,14 @@ The degree <4 is very fast to verify as it implies only 5 evaluations, the degre
 Now, we have chosen our space in such a way that it is divisible by 4 a few times at least.
 This gives us the opportunity to repeat the above process for the polynomial `P_1(x) = G(x_c, x), x ∈ { units^4 }` with now original degree of `<D/4`.
 We can consider the rectangle `(x, y), x ∈ { units^4 }, y ∈ { units^8 }` and define the polynomial `G_1(x, y)` such that `G_1(x, x^4) = P_1(x)`. So the column of the last iteration is the diagonal of the new iteration, and at each iteration, the degree of the column polynomial is divided by 4.
-The process stops when the diagonal has a degree low enough to allow a direct proof, i.e. simply providing enough evaluations to inerpolate and check the degree.
+The process stops when the diagonal has a degree low enough to allow a direct proof, i.e. simply providing enough evaluations to interpolate and check the degree.
 
 The prover will now: check if the degree to prove is above a fixed threshold
 - if no: the prover selects enough, e.g. more than degree threshold, evaluations with their Merkle roots, it adds these to the proof,
 - if yes:
     - the prover will select a column point,
     - it evaluates the polynomial over the column and commit to these evaluations,
-    - it selects rows, add the associated diagonal evaluations with their Merkle proofs, it also add the matching evaluation on the column with its Merkle proof, all of this is added to the proof,
+    - it selects rows, add the associated diagonal evaluations with their Merkle proofs, it also adds the matching evaluation on the column with its Merkle proof, all of this is added to the proof,
     - the column evaluations is used as starting point for the process again.
 
 In terms of verification:
@@ -302,3 +301,15 @@ In terms of verification:
 - interpolate the evaluations of the direct proof and verify that it belongs to a polynomial of degree less than the degree threshold.
 
 This recursive process is nice for the prover but is mostly for the verifier. The complexity of the prover is still capped by the diagonal evaluations at `O(DN)`. However, for the verifier, we don't have to do the costly interpolation of the column polynomial so it is a great win, the complexity goes down to a logarithmic.
+
+## The final proof
+
+Now we have our ingredients to define the final proof.
+
+Before the development on the low degree proof, we stopped with a way to prove with good probability that the equation `C(P(x)) = Z(x) * D(x)` holds, i.e. oversampling the original evaluations with a way bigger range, committing to the data and then selects a few evaluations in order to let the verifier verifies that the equation holds at the selected points. We'll keep that part and call it the `spot checks` part.
+
+The weakness in the above proof was that the prover could cheat by modifying directly the evaluations with arbitrary values, though still verifying the relations. We argued that by cheating in this way, the prover was actually increasing the degree of the polynomials underlying the proof.
+
+The low degree proof has been described as a solution to this problem, so we can now complete the proof to defend against this kind of attack. The prover evaluates two polynomials, the `P` and `D` polynomials, hence we will need two low degree proofs:
+- one for `P` with maximum degree `D = 1_000_000`,
+- one for `D` with maximum degree `10 * D - D = 9 * D = 9_000_000`. The factor 10 is coming from `C` while the `- D` is coming from the division of `C(P(x))` by `Z(x)`.
