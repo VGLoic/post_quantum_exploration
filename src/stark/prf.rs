@@ -47,7 +47,7 @@ pub fn pseudo_random_select_unit_index(seed: &[u8; 32], modulus: usize) -> usize
 
 fn chunk_to_usize(chunk: &[u8], modulus: usize) -> usize {
     let mut le_bytes = [0u8; 4];
-    le_bytes.clone_from_slice(chunk);
+    le_bytes.copy_from_slice(chunk);
     u32::from_le_bytes(le_bytes) as usize % modulus
 }
 
