@@ -25,13 +25,13 @@ const SPOT_CHECKS_COUNT: usize = 40;
 ///     - C(x): the constraint polynomial defined as `C(x) = 0 for 0 <= x <= 9`, we take `C(x) = x(x - 1)...(x - 9)`,
 ///     - g: the generator of the prime field, i.e. any unit (all elements except 0) can be obtained as `a = g^k`.
 ///         The codebase will first organize the space as successive powers of this generator, hence we often refer to `unit index` (0 index is `g`, index 1 is `g^2`, etc...) instead of the unit directly,
-///     - Z(x): the polymomial defined as `Z(x) = (x - 1)(x - 2)...(x - MAX_DEGREE)`.
+///     - Z(x): the polynomial defined as `Z(x) = (x - 1)(x - 2)...(x - MAX_DEGREE)`.
 ///
 /// With these definitions, our problem is now defined under the equation:
 /// ```txt
 /// C(P(x)) = Z(x) * D(x) (#1)
 /// ```
-/// Where the polymomial `D` has been introduced as the quotient of `C(P(x))` by `Z(x)`.
+/// Where the polynomial `D` has been introduced as the quotient of `C(P(x))` by `Z(x)`.
 ///
 /// The proof generation is as follows:
 ///     1. we evaluate over the entire prime field the polynomials P and D.
@@ -142,13 +142,13 @@ fn select_spot_checks<const N: u32>(
 ///     - C(x): the constraint polynomial defined as `C(x) = 0 for 0 <= x <= 9`, we take `C(x) = x(x - 1)...(x - 9)`,
 ///     - g: the generator of the prime field, i.e. any unit (all elements except 0) can be obtained as `a = g^k`.
 ///         The codebase will first organize the space as successive powers of this generator, hence we often refer to `unit index` (0 index is `g`, index 1 is `g^2`, etc...) instead of the unit directly,
-///     - Z(x): the polymomial defined as `Z(x) = (x - 1)(x - 2)...(x - MAX_DEGREE)`.
+///     - Z(x): the polynomial defined as `Z(x) = (x - 1)(x - 2)...(x - MAX_DEGREE)`.
 ///
 /// With these definitions, our problem is now defined under the equation:
 /// ```txt
 /// C(P(x)) = Z(x) * D(x) (#1)
 /// ```
-/// Where the polymomial `D` has been introduced as the quotient of `C(P(x))` by `Z(x)`.
+/// Where the polynomial `D` has been introduced as the quotient of `C(P(x))` by `Z(x)`.
 ///
 /// The verification is as follows:
 ///     - the low degree proof for `P` will be verified, it convinces the verifier, with good probability, that `P` is of degree less than `MAX_DEGREE`,

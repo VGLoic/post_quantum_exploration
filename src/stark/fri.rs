@@ -32,7 +32,7 @@ const ROW_COUNT: usize = 40;
 ///
 /// # Implementation
 ///
-/// For a more detailled version, please consult the README of the module.
+/// For a more detailed version, please consult the README of the module.
 ///
 /// Let us state two important remarks:
 /// 1. this algorithm will only work with prime field containing a sufficiently large subgroup of order 2^k.
@@ -54,7 +54,7 @@ const ROW_COUNT: usize = 40;
 ///
 /// At each step:
 /// - the diagonal commitment root hash is used in order to pseudo randomly select the unit describing the column: `x_c`,
-/// - the diagonal polymomial is evaluated as a binomial polynomial along the column `x = x_c`, for each unit in the column:
+/// - the diagonal polynomial is evaluated as a binomial polynomial along the column `x = x_c`, for each unit in the column:
 ///     - the four diagonal evaluations on this row are selected using their indices: `column_unit_index + i * (N-1)/4, i = 0, 1, 2, 3`,
 ///     - the polynomial of the row is interpolated using Lagrange interpolation,
 ///     - the polynomial is evaluated at `x = x_c`,
@@ -210,7 +210,7 @@ pub fn generates_low_degree_proof<const N: u32>(
 ///
 /// # Implementation
 ///
-/// For a more detailled version, please consult the README of the module.
+/// For a more detailed version, please consult the README of the module.
 ///
 /// Let us state two important remarks:
 /// 1. this algorithm will only work with prime field containing a sufficiently large subgroup of order 2^k.
@@ -446,7 +446,7 @@ fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
     while degree > DEGREE_THRESHOLD {
         if !degree.is_multiple_of(4) {
             return Err(anyhow!(
-                "max_degree must be a divisble by 4 until degree threshold {DEGREE_THRESHOLD} is reached"
+                "max_degree must be a divisible by 4 until degree threshold {DEGREE_THRESHOLD} is reached"
             ));
         }
         degree /= 4;

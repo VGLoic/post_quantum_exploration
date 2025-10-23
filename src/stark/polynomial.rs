@@ -36,7 +36,7 @@ impl<const N: u32> Polynomial<N> {
             let x_neg = x.neg();
             // Handle leading coefficient
             coefficients.push(1.into());
-            // For each coefficient from 1 to i (incuded) we have coeff[j] = coeff[j - 1] - x * coeff[j]
+            // For each coefficient from 1 to i (included) we have coeff[j] = coeff[j - 1] - x * coeff[j]
             for j in (1..=i).rev() {
                 coefficients[j] = coefficients[j - 1].add(&coefficients[j].mul(&x_neg));
             }

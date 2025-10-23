@@ -24,7 +24,7 @@ The process is additionally described by the following properties:
 
 As a spoiler, most of the hard work that will come later is around *succintness* and *soundness*.
 
-## A disgression on erasure coding 
+## A digression on erasure coding 
 
 The mathematics and the idea that will be used is close to the domain of [erasure coding](https://en.wikipedia.org/wiki/Erasure_code):
 - given a set of data, one can derive an associated polynomial function and use it in order to oversample the original set,
