@@ -1,6 +1,6 @@
 /// Computes a mod n, ensuring the result is non-negative
 pub fn modulo(a: i128, n: u32) -> u32 {
-    let n_as_i128: i128 = n.into();
+    let n_as_i128: i128 = n as i128;
     let mut res = a % n_as_i128;
     if res < 0 {
         res += n_as_i128;
@@ -10,19 +10,19 @@ pub fn modulo(a: i128, n: u32) -> u32 {
 
 /// Computes a + b (mod n)
 pub fn modulo_add(a: u32, b: u32, n: u32) -> u32 {
-    ((Into::<u64>::into(a) + Into::<u64>::into(b)) % Into::<u64>::into(n)) as u32
+    ((a as u64 + b as u64) % (n as u64)) as u32
 }
 
 /// Computes -a (mod n)
 pub fn modulo_neg(a: u32, n: u32) -> u32 {
-    let a = a % n;
-    if a == 0 { 0 } else { n - a }
+    let a_mod = a % n;
+    if a_mod != 0 { n - a_mod } else { 0 }
 }
 
 /// Computes a * b (mod n)
 pub fn modulo_mul(a: u32, b: u32, n: u32) -> u32 {
-    let product = Into::<u64>::into(a) * Into::<u64>::into(b);
-    (product % Into::<u64>::into(n)) as u32
+    let product = (a as u64) * (b as u64);
+    (product % (n as u64)) as u32
 }
 
 /// Computes a^(-1) (mod n) using the Extended Euclidean Algorithm
@@ -35,7 +35,7 @@ pub fn modulo_inv(a: u32, n: u32) -> Option<u32> {
         return Some(1);
     }
 
-    let (mut new_r, mut r) = (Into::<i128>::into(a), Into::<i128>::into(n));
+    let (mut new_r, mut r) = ((a as i128), (n as i128));
     let (mut new_t, mut t) = (1_i128, 0_i128);
 
     while new_r != 0 {
@@ -49,6 +49,21 @@ pub fn modulo_inv(a: u32, n: u32) -> Option<u32> {
     }
 
     Some(modulo(t, n))
+}
+
+pub fn modulo_exp(a: u32, e: u32, n: u32) -> u32 {
+    let mut result = 1;
+    let mut base = a;
+    let mut exponent = e;
+    while exponent > 0 {
+        if exponent % 2 == 1 {
+            result = modulo_mul(result, base, n);
+        }
+        exponent >>= 1;
+        base = modulo_mul(base, base, n);
+    }
+
+    result
 }
 
 #[allow(dead_code)]
@@ -146,5 +161,25 @@ mod modular_arithmetic_tests {
         let a = rand::random();
         let inv = modulo_inv(a, n).unwrap();
         assert_eq!(modulo_mul(a, inv, n), 1);
+    }
+
+    #[test]
+    fn test_modulo_exp_basic() {
+        // 2^3 mod 5 = 8 mod 5 = 3
+        assert_eq!(modulo_exp(2, 3, 5), 3);
+        // 5^0 mod 7 = 1
+        assert_eq!(modulo_exp(5, 0, 7), 1);
+        // 0^5 mod 7 = 0
+        assert_eq!(modulo_exp(0, 5, 7), 0);
+        // 7^1 mod 13 = 7
+        assert_eq!(modulo_exp(7, 1, 13), 7);
+        // 3^4 mod 5 = 81 mod 5 = 1
+        assert_eq!(modulo_exp(3, 4, 5), 1);
+    }
+
+    #[test]
+    fn test_modulo_exp_large_exponent() {
+        // 2^30 mod 1009 = 1073741824 = 1064164 * 1009 + 348
+        assert_eq!(modulo_exp(2, 30, 1009), 348);
     }
 }

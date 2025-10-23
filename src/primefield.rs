@@ -1,6 +1,6 @@
 use crate::modular_arithmetic::*;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
 pub struct PrimeFieldElement<const MODULUS: u32>(u32);
 
 impl<const MODULUS: u32> From<u32> for PrimeFieldElement<MODULUS> {
@@ -32,6 +32,10 @@ impl<const MODULUS: u32> PrimeFieldElement<MODULUS> {
 
     pub fn inv(&self) -> Option<Self> {
         modulo_inv(self.0, MODULUS).map(Self)
+    }
+
+    pub fn exp(&self, e: u32) -> Self {
+        Self(modulo_exp(self.0, e, MODULUS))
     }
 }
 

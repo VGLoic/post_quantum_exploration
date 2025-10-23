@@ -62,29 +62,28 @@ pub struct MerkleTreeV2<T>
 where
     T: Clone + Default + AsRef<[u8]>,
 {
-    depth: u8,
+    pub depth: u8,
     root: BranchV2<T>,
 }
 
-#[allow(dead_code)]
+pub type MerkleProof = Vec<(bool, [u8; 32])>;
+
 pub struct ValueWithProof<'a, T>
 where
     T: Clone + Default + AsRef<[u8]>,
 {
     pub value: &'a T,
-    pub proof: Vec<(bool, &'a [u8; 32])>,
+    pub proof: MerkleProof,
 }
 
 impl<T> MerkleTreeV2<T>
 where
     T: Clone + Default + AsRef<[u8]>,
 {
-    #[allow(dead_code)]
     pub fn root_hash(&self) -> &[u8; 32] {
         &self.root.hash
     }
 
-    #[allow(dead_code)]
     pub fn get<'a>(&'a self, selector: &[bool]) -> Result<ValueWithProof<'a, T>, anyhow::Error> {
         if selector.len() != self.depth.into() {
             return Err(anyhow!(
@@ -94,16 +93,16 @@ where
             ));
         }
         let mut current_branch: &BranchV2<T> = &self.root;
-        let mut proof: Vec<(bool, &'a [u8; 32])> = vec![];
+        let mut proof: Vec<(bool, [u8; 32])> = vec![];
         for direction in selector {
             // If direction is true, we register the hash of the left node in the proof and we take a look at the right node
 
             let next_node = if *direction {
-                proof.push((false, current_branch.left.hash()));
+                proof.push((false, current_branch.left.hash().to_owned()));
                 &current_branch.right
             } else {
                 // If direction is false, we register the hash of the right node in the proof and we take a look at the left node
-                proof.push((true, current_branch.right.hash()));
+                proof.push((true, current_branch.right.hash().to_owned()));
                 &current_branch.left
             };
             match &**next_node {
@@ -123,6 +122,28 @@ where
         Err(anyhow!(
             "unexpected end of direction selector without leaves"
         ))
+    }
+
+    pub fn index_to_selector(&self, index: usize) -> Vec<bool> {
+        let mut selector = vec![];
+
+        let mut i = index;
+        while i != 0 {
+            if i.is_multiple_of(2) {
+                selector.push(false);
+            } else {
+                selector.push(true);
+            }
+            i /= 2;
+        }
+
+        if selector.len() < self.depth as usize {
+            selector.resize(self.depth as usize, false);
+        }
+
+        selector.reverse();
+
+        selector
     }
 
     #[allow(dead_code)]
@@ -231,11 +252,7 @@ where
 }
 
 #[allow(dead_code)]
-pub fn verify_proof<T>(
-    root: &[u8; 32],
-    value: T,
-    proof: &[(bool, [u8; 32])],
-) -> Result<(), anyhow::Error>
+pub fn verify_proof<T>(root: &[u8; 32], value: T, proof: &MerkleProof) -> Result<(), anyhow::Error>
 where
     T: AsRef<[u8]>,
 {
@@ -302,14 +319,29 @@ mod merkletree_tests {
                 .collect::<Vec<bool>>();
             let selected = tree.get(&selector).unwrap();
             assert_eq!(selected.value, value);
-            let owned_proof: Vec<(bool, [u8; 32])> = selected
-                .proof
-                .iter()
-                .map(|v| (v.0, v.1.to_owned()))
-                .collect();
-            if let Err(e) = verify_proof(tree.root_hash(), selected.value, &owned_proof) {
+            if let Err(e) = verify_proof(tree.root_hash(), selected.value, &selected.proof) {
                 panic!("{e:?}");
             }
         }
+    }
+
+    #[test]
+    fn test_selector() {
+        let depth = 12u8;
+        let number_of_elements = 2usize.pow(depth.into());
+        let mut values = vec![];
+        for _ in 0..number_of_elements {
+            let inner_value: [u8; 64] = rand::random();
+            values.push(Stuff { v: inner_value });
+        }
+        let tree = MerkleTreeV2::new(depth, &values).unwrap();
+        assert_eq!(tree.index_to_selector(0), vec![false; depth as usize]);
+        assert_eq!(tree.index_to_selector(4095), vec![true; depth as usize]);
+        let mut expected = vec![false; depth as usize];
+        expected[11] = true;
+        assert_eq!(tree.index_to_selector(1), expected);
+        let mut expected = vec![false; depth as usize];
+        expected[10] = true;
+        assert_eq!(tree.index_to_selector(2), expected);
     }
 }
