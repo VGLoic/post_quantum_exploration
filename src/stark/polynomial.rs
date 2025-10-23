@@ -106,7 +106,7 @@ impl<const N: u32> Polynomial<N> {
             let (numerator, _) = master_numerator
                 .div(&Self::new(vec![x_i.neg(), 1.into()]))
                 .ok_or(anyhow!("unable to divide master numerator with root {x_i}"))?;
-            let numerator_ev_inv = numerator.evaluate(x_i).inv().ok_or(anyhow!("failed to inverse numerator evaluation, it is a sign of duplicate points in input. This is not supported"))?;
+            let numerator_ev_inv = numerator.evaluate(x_i).inv().ok_or(anyhow!("failed to invert numerator evaluation; this indicates duplicate points in input, which is not supported"))?;
             let factor = y_i.mul(&numerator_ev_inv);
             for (j, c_j) in numerator.coefficients.into_iter().enumerate() {
                 p_coefficients[j] = p_coefficients[j].add(&c_j.mul(&factor));
