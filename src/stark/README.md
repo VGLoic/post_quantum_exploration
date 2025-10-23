@@ -8,6 +8,8 @@ In this repository, one will find:
 - the notes on the articles in the related [document](./ARTICLES_NOTES.md),
 - an implementation of a stark proof generation and verification for a range check problem.
 
+> [!WARNING] 
+> The code represents my understanding of the Stark, it is not optimized and is not meant for any serious use.
 
 ## Improvements to add:
 - use fast Fourier transform instead of Lagrange interpolation,
