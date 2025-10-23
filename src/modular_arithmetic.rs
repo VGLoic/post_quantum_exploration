@@ -15,7 +15,8 @@ pub fn modulo_add(a: u32, b: u32, n: u32) -> u32 {
 
 /// Computes -a (mod n)
 pub fn modulo_neg(a: u32, n: u32) -> u32 {
-    if a != 0 { n - a % n } else { 0 }
+    let a_mod = a % n;
+    if a_mod != 0 { n - a_mod } else { 0 }
 }
 
 /// Computes a * b (mod n)
