@@ -249,7 +249,7 @@ fn verify_spot_checks<const N: u32>(
             let rhs = z_eval.mul(&spot_check.d_evaluation.v);
             if rhs != cp_eval {
                 return Err(anyhow!(
-                    "original commitments do not respect the equation cp(p) = z * d, rhs is {rhs} and lfs is {cp_eval}"
+                    "original commitments do not respect the equation cp(p) = z * d, rhs is {rhs} and lhs is {cp_eval}"
                 ));
             }
         }
