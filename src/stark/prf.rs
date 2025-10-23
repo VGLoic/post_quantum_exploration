@@ -1,13 +1,16 @@
 use std::collections::HashSet;
 
+use anyhow::anyhow;
 use sha3::{Digest, Sha3_256};
+
+const MAX_ITERATIONS: usize = 50_000;
 
 pub fn pseudo_random_select_units_indices(
     seed: &[u8; 32],
     target_length: usize,
     modulus: usize,
     excluded_indices: &HashSet<usize>,
-) -> Vec<usize> {
+) -> Result<Vec<usize>, anyhow::Error> {
     let mut indices = vec![];
     let mut selected_indices: HashSet<usize> = HashSet::new();
     let mut counter = 0;
@@ -26,12 +29,14 @@ pub fn pseudo_random_select_units_indices(
         }
         counter += 1;
 
-        if counter > 50_000 {
-            panic!("oula");
+        if counter > MAX_ITERATIONS {
+            return Err(anyhow!(
+                "exceeded maximum iterations for pseudo-random selection"
+            ));
         }
     }
     indices.resize(target_length, 0);
-    indices
+    Ok(indices)
 }
 
 pub fn pseudo_random_select_unit_index(seed: &[u8; 32], modulus: usize) -> usize {

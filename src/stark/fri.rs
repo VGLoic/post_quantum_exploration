@@ -133,7 +133,7 @@ pub fn generates_low_degree_proof<const N: u32>(
             ROW_COUNT + 1,
             row_dimension / 4,
             &column_excluded_indices,
-        );
+        )?;
         let mut indirect_diagonal_commitments = vec![];
         let mut indirect_column_commitments = vec![];
         let excluded_row_index = x_c_index % (row_dimension / 4);
@@ -179,7 +179,7 @@ pub fn generates_low_degree_proof<const N: u32>(
         DIRECT_COMMITMENTS_COUNT,
         row_dimension,
         &row_excluded_indices,
-    );
+    )?;
     let direct_commitments = final_indices
         .into_iter()
         .map(|unit_index| diagonal_commitments_tree.select_commitment(unit_index))
@@ -296,7 +296,7 @@ pub fn verify_low_degree_proof<const N: u32>(
             ROW_COUNT + 1,
             row_dimension / 4,
             &column_excluded_indices,
-        );
+        )?;
         let excluded_row_index = x_c_index % (row_dimension / 4);
         for ((diag_row_commitments, associated_column_commitment), expected_row_index) in
             indirect_commitment
@@ -373,7 +373,7 @@ pub fn verify_low_degree_proof<const N: u32>(
         DIRECT_COMMITMENTS_COUNT,
         row_dimension,
         &row_excluded_indices,
-    );
+    )?;
 
     if final_indices.len() != proof.direct_commitments.len() {
         return Err(anyhow!(

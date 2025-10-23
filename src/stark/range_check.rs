@@ -116,7 +116,7 @@ fn select_spot_checks<const N: u32>(
         SPOT_CHECKS_COUNT,
         units.len(),
         &HashSet::new(),
-    );
+    )?;
     let mut spot_checks = vec![];
     for unit_index in spot_check_indices {
         let p_commit = p_commitments_tree.select_commitment(unit_index)?;
@@ -208,7 +208,7 @@ fn verify_spot_checks<const N: u32>(
         SPOT_CHECKS_COUNT,
         units.len(),
         &HashSet::new(),
-    );
+    )?;
 
     if spot_checks.len() != SPOT_CHECKS_COUNT {
         return Err(anyhow!(
