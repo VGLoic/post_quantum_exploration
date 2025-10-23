@@ -11,6 +11,7 @@ In this repository, one will find:
 
 ## Improvements to add:
 - use fast Fourier transform instead of Lagrange interpolation,
+- use [Montgomery batch inversions](https://books.google.fr/books?id=kGu4lTznRdgC&pg=PA54&lpg=PA54&dq=montgomery+batch+inversion&source=bl&ots=tPJcPPOrCe&sig=Z3p_6YYwYloRU-f1K-nnv2D8lGw&hl=en&sa=X&redir_esc=y#v=onepage&q=montgomery%20batch%20inversion&f=false),
 - support modular arithmetic for larger prime fields,
 - add measurements on concrete cases,
-- add another system than range check.
+- add another computation than range check.

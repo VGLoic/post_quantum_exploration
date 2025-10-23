@@ -38,6 +38,9 @@ This is designed for educational and experimental purposes; not optimized for pr
 - **General Modular Arithmetic:**  
   Utility functions for modular addition, multiplication, negation, and inversion. See [`src/modular_arithmetic.rs`](src/modular_arithmetic.rs).
 
+- ***Stark**:*
+  A module where a dive into starks is made following the articles ([1](https://vitalik.eth.limo/general/2017/11/09/starks_part_1.html), [2](https://vitalik.eth.limo/general/2017/11/22/starks_part_2.html) and [3](https://vitalik.eth.limo/general/2018/07/21/starks_part_3.html)) of Vitalik Buterin on the topic. The module contains notes about the articles and an implementation of a stark for a range check problem.
+
 ## Getting Started
 
 To build and test the project:
