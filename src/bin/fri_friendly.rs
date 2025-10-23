@@ -6,17 +6,6 @@ use post_quantum_exploration::modular_arithmetic::modulo_mul;
  * The script outputs the number of FRI rounds possible for the given prime, along with the possible roots of unity generators.
  */
 fn main() {
-    // let args = std::env::args().collect::<Vec<String>>();
-    // if args.len() != 2 {
-    //     eprintln!("Usage: {} <prime>", args[0]);
-    //     std::process::exit(1);
-    // }
-
-    // let prime = args[1].parse::<u32>().unwrap_or_else(|_| {
-    //     eprintln!("Invalid prime number, restricted to u32.");
-    //     std::process::exit(1);
-    // });
-
     let primes = vec![
         2069, 2081, 2083, 2087, 2089, 2099, 2111, 2113, 2129, 2131, 2137, 2141, 2143, 2153, 2161,
         2179, 2203, 2207, 2213, 2221, 2237, 2239, 2243, 2251, 2267, 2269, 2273, 2281, 2287, 2293,

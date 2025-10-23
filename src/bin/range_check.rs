@@ -6,7 +6,7 @@ use post_quantum_exploration::{
     },
 };
 
-const N: u32 = 1_073_153; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
+const N: u32 = 1_073_153; // Chosen because: (p - 1) is divisible 6 times by 4 and is larger than 1_000_000
 const GENERATOR: u32 = 3;
 const P_MAX_DEGREE: u32 = 1_024; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
 

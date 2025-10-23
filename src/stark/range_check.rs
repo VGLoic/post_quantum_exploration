@@ -290,7 +290,7 @@ mod test {
     use super::*;
     use crate::stark::polynomial::Polynomial;
 
-    const N: u32 = 40_961; // Chosen because: (p - 1) / 4 = 268288 and larger than 1_000_000
+    const N: u32 = 40_961; // Chosen because: (p - 1) is divisible 6 times by 4 
     const GENERATOR: u32 = 3;
     const P_MAX_DEGREE: u32 = 256; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
 
