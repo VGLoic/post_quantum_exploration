@@ -17,6 +17,17 @@ Scripts are available at the root level in order to work with stark:
 - `fri_friendly`: check among a list of primes, the ones that are FRI friendly,
 - `range_check`: run the proof generation and verification for the range check problem.
 
+
+## Profiling
+
+[Samply](https://github.com/mstange/samply) is used as a profiling tool. The recommended way to use it is to first build the executables using the `profiling` profile and then use Samply to run it.
+
+For instance for the `range_check` executable:
+```bash
+cargo build --profile profiling
+samply record ./target/profiling/range_check
+```
+
 ## Improvements to add:
 - use fast Fourier transform instead of Lagrange interpolation,
 - use [Montgomery batch inversions](https://books.google.fr/books?id=kGu4lTznRdgC&pg=PA54&lpg=PA54&dq=montgomery+batch+inversion&source=bl&ots=tPJcPPOrCe&sig=Z3p_6YYwYloRU-f1K-nnv2D8lGw&hl=en&sa=X&redir_esc=y#v=onepage&q=montgomery%20batch%20inversion&f=false),

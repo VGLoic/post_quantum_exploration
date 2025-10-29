@@ -17,3 +17,7 @@ fake = "4.4.0"
 
 [profile.release]
 debug = true
+
+[profile.profiling]
+inherits = "release"
+debug = true
