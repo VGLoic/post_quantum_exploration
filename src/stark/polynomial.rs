@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 
-use crate::primefield::PrimeFieldElement;
+use crate::{primefield::PrimeFieldElement, stark::fft};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Polynomial<const N: u32> {
@@ -225,6 +225,20 @@ impl<const N: u32> Polynomial<N> {
         evaluation
     }
 
+    /// Evaluates the polynomial over a whole set of units generated as successive power of a generator.
+    ///
+    /// The implementation uses the fast Fourier transform, therefore the units set must have a length as 2^k.
+    ///
+    /// The polynomial must have a degree equal or lower than the length of the units set.
+    ///
+    /// # Arguments
+    /// * `units` - Set of units, generated as successive power of a generator. The set must have a length of 2^k.
+    ///
+    /// Returns the evaluation of the polynomial over the whole set.
+    pub fn fft_evaluate(&self, units: &[PrimeFieldElement<N>]) -> Vec<PrimeFieldElement<N>> {
+        fft::fft(&self.coefficients, units)
+    }
+
     pub fn evaluate_as_binomial(
         &self,
         x: &PrimeFieldElement<N>,
@@ -446,6 +460,36 @@ mod polynomial_tests {
         assert_eq!(p.evaluate(&0.into()), 2.into());
         assert_eq!(p.evaluate(&1.into()), 4.into());
         assert_eq!(p.evaluate(&4.into()), 58.into());
+    }
+
+    #[test]
+    fn test_fft_evaluation() {
+        const N: u32 = 337;
+        let g = PrimeFieldElement::<N>::from(85);
+        let mut units = vec![PrimeFieldElement::<N>::from(1)];
+        let mut power_of_g = g;
+        while power_of_g != 1.into() {
+            units.push(power_of_g);
+            power_of_g = power_of_g.mul(&g);
+        }
+
+        for coefficients in [
+            vec![3, 1, 4, 1, 5, 9, 2, 6],
+            vec![1, 0, 1, 0, 1, 0],
+            vec![1, 0, 1, 0, 1],
+            vec![1, 0, 0, 0],
+        ] {
+            let p = Polynomial::<N>::new(
+                coefficients
+                    .into_iter()
+                    .map(PrimeFieldElement::<N>::from)
+                    .collect(),
+            );
+            let evaluations = p.fft_evaluate(&units);
+            for (i, u) in units.iter().enumerate() {
+                assert_eq!(evaluations[i], p.evaluate(u));
+            }
+        }
     }
 
     #[test]

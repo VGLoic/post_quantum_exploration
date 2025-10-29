@@ -1,4 +1,5 @@
 mod commitment;
+mod fft;
 mod fri;
 pub mod polynomial;
 mod prf;
