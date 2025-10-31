@@ -3,18 +3,18 @@ use anyhow::anyhow;
 use crate::{primefield::PrimeFieldElement, stark::fft};
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Polynomial<const N: u32> {
+pub struct Polynomial<const N: u64> {
     // Coefficients in ascending order
     coefficients: Vec<PrimeFieldElement<N>>,
 }
 
-impl<const N: u32> Default for Polynomial<N> {
+impl<const N: u64> Default for Polynomial<N> {
     fn default() -> Self {
         Self::new(vec![])
     }
 }
 
-impl<const N: u32> Polynomial<N> {
+impl<const N: u64> Polynomial<N> {
     pub fn new(coefficients: Vec<PrimeFieldElement<N>>) -> Self {
         let mut filtered_coefficients = coefficients;
         let zero = PrimeFieldElement::from(0);
@@ -48,7 +48,7 @@ impl<const N: u32> Polynomial<N> {
     }
 
     pub fn interpolate_and_evaluate_zpoly(
-        roots: impl Iterator<Item = u32>,
+        roots: impl Iterator<Item = u64>,
         x: &PrimeFieldElement<N>,
     ) -> PrimeFieldElement<N> {
         let mut is_empty = true;
@@ -287,7 +287,7 @@ impl<const N: u32> Polynomial<N> {
     }
 }
 
-impl<const N: u32> std::fmt::Display for Polynomial<N> {
+impl<const N: u64> std::fmt::Display for Polynomial<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let displayed =
             self.coefficients
@@ -331,7 +331,7 @@ mod polynomial_tests {
         let number_of_points = rand::random_range(2..=100);
         let points: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
             .map(|_| {
-                let v: u32 = rand::random();
+                let v: u64 = rand::random();
                 PrimeFieldElement::from(v)
             })
             .collect();
@@ -343,7 +343,7 @@ mod polynomial_tests {
 
     #[test]
     fn test_interpolation_and_evaluation_zpoly() {
-        let max: u32 = rand::random();
+        let max: u64 = rand::random();
         let modulus_for_test_efficiency = 10_000;
         for point in 0..(max % modulus_for_test_efficiency) {
             assert_eq!(
@@ -358,12 +358,12 @@ mod polynomial_tests {
 
     #[test]
     fn test_interpolation_from_coordinates() {
-        let number_of_points: u32 = rand::random_range(2..=100);
+        let number_of_points: u64 = rand::random_range(2..=100);
         let points: Vec<PrimeFieldElement<1_000_000_007>> =
             (0..number_of_points).map(PrimeFieldElement::from).collect();
         let values: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
             .map(|_| {
-                let y: u32 = rand::random();
+                let y: u64 = rand::random();
                 PrimeFieldElement::from(y)
             })
             .collect();
@@ -375,12 +375,12 @@ mod polynomial_tests {
 
     #[test]
     fn test_interpolation_and_evaluation_from_coordinates() {
-        let number_of_points: u32 = rand::random_range(2..=100);
+        let number_of_points: u64 = rand::random_range(2..=100);
         let points: Vec<PrimeFieldElement<1_000_000_007>> =
             (0..number_of_points).map(PrimeFieldElement::from).collect();
         let values: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
             .map(|_| {
-                let y: u32 = rand::random();
+                let y: u64 = rand::random();
                 PrimeFieldElement::from(y)
             })
             .collect();
@@ -394,7 +394,7 @@ mod polynomial_tests {
         }
         let additional_points: Vec<PrimeFieldElement<1_000_000_007>> = (0..1_000)
             .map(|_| {
-                let x: u32 = rand::random();
+                let x: u64 = rand::random();
                 PrimeFieldElement::from(x)
             })
             .collect();
@@ -427,7 +427,7 @@ mod polynomial_tests {
     fn test_neg() {
         let mut a: Vec<PrimeFieldElement<1_000_000_007>> = Vec::with_capacity(100);
         for _ in 0..100 {
-            let c: u32 = rand::random();
+            let c: u64 = rand::random();
             a.push(c.into())
         }
 
@@ -464,7 +464,7 @@ mod polynomial_tests {
 
     #[test]
     fn test_fft_evaluation() {
-        const N: u32 = 337;
+        const N: u64 = 337;
         let g = PrimeFieldElement::<N>::from(85);
         let mut units = vec![PrimeFieldElement::<N>::from(1)];
         let mut power_of_g = g;

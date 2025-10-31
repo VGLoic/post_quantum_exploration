@@ -1,33 +1,33 @@
 /// Computes a mod n, ensuring the result is non-negative
-pub fn modulo(a: i128, n: u32) -> u32 {
+pub fn modulo(a: i128, n: u64) -> u64 {
     let n_as_i128: i128 = n as i128;
     let mut res = a % n_as_i128;
     if res < 0 {
         res += n_as_i128;
     }
-    res as u32
+    res as u64
 }
 
 /// Computes a + b (mod n)
-pub fn modulo_add(a: u32, b: u32, n: u32) -> u32 {
-    ((a as u64 + b as u64) % (n as u64)) as u32
+pub fn modulo_add(a: u64, b: u64, n: u64) -> u64 {
+    ((a as u128 + b as u128) % (n as u128)) as u64
 }
 
 /// Computes -a (mod n)
-pub fn modulo_neg(a: u32, n: u32) -> u32 {
+pub fn modulo_neg(a: u64, n: u64) -> u64 {
     let a_mod = a % n;
     if a_mod != 0 { n - a_mod } else { 0 }
 }
 
 /// Computes a * b (mod n)
-pub fn modulo_mul(a: u32, b: u32, n: u32) -> u32 {
-    let product = (a as u64) * (b as u64);
-    (product % (n as u64)) as u32
+pub fn modulo_mul(a: u64, b: u64, n: u64) -> u64 {
+    let product = (a as u128) * (b as u128);
+    (product % (n as u128)) as u64
 }
 
 /// Computes a^(-1) (mod n) using the Extended Euclidean Algorithm
 /// Returns None if a has no inverse mod n (i.e. if gcd(a, n) != 1)
-pub fn modulo_inv(a: u32, n: u32) -> Option<u32> {
+pub fn modulo_inv(a: u64, n: u64) -> Option<u64> {
     if a == 0 {
         return None;
     }
@@ -51,7 +51,7 @@ pub fn modulo_inv(a: u32, n: u32) -> Option<u32> {
     Some(modulo(t, n))
 }
 
-pub fn modulo_exp(a: u32, e: u32, n: u32) -> u32 {
+pub fn modulo_exp(a: u64, e: u32, n: u64) -> u64 {
     let mut result = 1;
     let mut base = a;
     let mut exponent = e;
@@ -80,7 +80,7 @@ pub fn modulo_exp(a: u32, e: u32, n: u32) -> u32 {
 ///     - computes r the rest of the division of larger by smaller,
 ///         - if zero, the smaller is the gcd,
 ///         - else, return gcd(smaller, r)
-fn gcd(a: u32, b: u32) -> u32 {
+fn gcd(a: u64, b: u64) -> u64 {
     let (mut larger, mut smaller) = if a > b { (a, b) } else { (b, a) };
     if smaller == 0 {
         return larger;

@@ -20,7 +20,7 @@ pub fn modulo_mul(a: i64, b: i64, n: u32) -> i64 {
 
 /// Computes a^(-1) (mod n) in centered coordinates, i.e. between -n/2 and n/2
 pub fn modulo_inv(a: i64, n: u32) -> Option<i64> {
-    modular_arithmetic::modulo_inv(modular_arithmetic::modulo(a.into(), n), n)
+    modular_arithmetic::modulo_inv(modular_arithmetic::modulo(a.into(), n.into()), n.into())
         .map(|inv| to_centered_coordinates(inv.into(), n))
 }
 

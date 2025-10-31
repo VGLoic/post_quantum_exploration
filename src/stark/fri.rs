@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-const DEGREE_THRESHOLD: u32 = 64;
+const DEGREE_THRESHOLD: u64 = 64;
 const DIRECT_COMMITMENTS_COUNT: usize = 80;
 const ROW_COUNT: usize = 40;
 
@@ -84,11 +84,11 @@ const ROW_COUNT: usize = 40;
 /// - the list of indirect proofs,
 /// - the direct commitments,
 /// - the root hash of the original commitments.
-pub fn generates_low_degree_proof<const N: u32>(
+pub fn generates_low_degree_proof<const N: u64>(
     original_values: Vec<Evaluation<N>>,
     original_commitments_tree: MerkleTreeV2<Evaluation<N>>,
     units: &[PrimeFieldElement<N>],
-    max_degree: u32,
+    max_degree: u64,
     excluded_indices: Option<HashSet<usize>>,
 ) -> Result<LowDegreeProof<N>, anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
@@ -253,10 +253,10 @@ pub fn generates_low_degree_proof<const N: u32>(
 ///     - the index is verified against the expected one,
 ///     - the Merkle proof is verified against the lastly defined diagonal commitment root hash,
 /// - the list of evaluations is interpolated, the resulting polynomial must be of degree less than the set threshold.
-pub fn verify_low_degree_proof<const N: u32>(
+pub fn verify_low_degree_proof<const N: u64>(
     proof: &LowDegreeProof<N>,
     units: &[PrimeFieldElement<N>],
-    max_degree: u32,
+    max_degree: u64,
     excluded_indices: Option<HashSet<usize>>,
 ) -> Result<(), anyhow::Error> {
     let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
@@ -423,13 +423,13 @@ pub fn verify_low_degree_proof<const N: u32>(
     Ok(())
 }
 
-pub struct LowDegreeProof<const N: u32> {
+pub struct LowDegreeProof<const N: u64> {
     pub original_commitments_root: [u8; 32],
     pub indirect_commitments: Vec<IndirectCommitment<N>>,
     pub direct_commitments: Vec<Commitment<N>>,
 }
 
-pub struct IndirectCommitment<const N: u32> {
+pub struct IndirectCommitment<const N: u64> {
     // Vec of diagonal commitments, each element contains 4 values over a 4-root in order to form a row
     pub diagonal_commitments: Vec<[Commitment<N>; 4]>,
     pub column_root: [u8; 32],
@@ -437,7 +437,7 @@ pub struct IndirectCommitment<const N: u32> {
     pub column_commitments: Vec<Commitment<N>>,
 }
 
-fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
+fn derive_indirect_steps_count(max_degree: u64) -> Result<u32, anyhow::Error> {
     if max_degree == 0 {
         return Ok(0);
     }
@@ -459,7 +459,7 @@ fn derive_indirect_steps_count(max_degree: u32) -> Result<u32, anyhow::Error> {
 fn scale_index(index: usize, reduction_level: usize) -> usize {
     let mut result = index;
     for _ in 0..reduction_level {
-        result = 4 * result + 3;
+        result = 4 * result;
     }
     result
 }

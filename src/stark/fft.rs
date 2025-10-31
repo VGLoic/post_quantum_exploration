@@ -13,7 +13,7 @@ use crate::primefield::PrimeFieldElement;
 /// * `units` - Set of units, generated as successive power of a generator. The set must have a length of 2^k.
 ///
 /// Returns the Fourier transform of the values over the whole set.
-pub fn fft<const N: u32>(
+pub fn fft<const N: u64>(
     values: &[PrimeFieldElement<N>],
     units: &[PrimeFieldElement<N>],
 ) -> Vec<PrimeFieldElement<N>> {
@@ -64,7 +64,7 @@ pub fn fft<const N: u32>(
 }
 
 #[allow(dead_code)]
-pub fn inverse_fft<const N: u32>(
+pub fn inverse_fft<const N: u64>(
     values: &[PrimeFieldElement<N>],
     units: &[PrimeFieldElement<N>],
 ) -> Result<Vec<PrimeFieldElement<N>>, anyhow::Error> {
@@ -72,11 +72,11 @@ pub fn inverse_fft<const N: u32>(
         return Ok(vec![0.into(); units.len()]);
     }
     let ft = fft(values, units);
-    let len_as_u32: u32 = units
+    let len_as_u64: u64 = units
         .len()
         .try_into()
         .map_err(|_| anyhow!("units are too long, can not express the length as u32"))?;
-    let inv_len = PrimeFieldElement::<N>::from(len_as_u32)
+    let inv_len = PrimeFieldElement::<N>::from(len_as_u64)
         .inv()
         .ok_or(anyhow!("unable to inverse the length of units"))?;
 
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_fft() {
-        const N: u32 = 337;
+        const N: u64 = 337;
         let g = PrimeFieldElement::<N>::from(85);
         let mut units = vec![PrimeFieldElement::<N>::from(1)];
         let mut power_of_g = g;
@@ -116,7 +116,7 @@ mod tests {
             vec![3, 1, 4, 1, 5, 9, 2, 6],
             vec![1, 0, 1, 0, 1, 0],
             vec![1, 0, 1, 0, 1],
-            vec![1u32, 0, 0, 0],
+            vec![1u64, 0, 0, 0],
         ] {
             let mut values: Vec<PrimeFieldElement<N>> = values
                 .iter()
