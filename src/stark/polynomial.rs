@@ -65,32 +65,6 @@ impl<const N: u64> Polynomial<N> {
         result
     }
 
-    pub fn interpolate_and_evaluate_from_coordinates(
-        points: &[PrimeFieldElement<N>],
-        values: &[PrimeFieldElement<N>],
-        x: &PrimeFieldElement<N>,
-    ) -> Option<PrimeFieldElement<N>> {
-        if points.is_empty() || points.len() != values.len() {
-            return Some(0.into());
-        }
-
-        let mut result = PrimeFieldElement::<N>::from(0);
-        for (i, (x_i, y_i)) in points.iter().zip(values).enumerate() {
-            let mut contribution = *y_i;
-            for (j, root_j) in points.iter().enumerate() {
-                if i != j {
-                    let root_j_neg = PrimeFieldElement::new(N - root_j.inner());
-                    let numerator = x.add(&root_j_neg);
-                    let denominator = x_i.add(&root_j_neg);
-                    contribution = contribution.mul(&numerator.mul(&denominator.inv()?));
-                }
-            }
-            result = result.add(&contribution);
-        }
-
-        Some(result)
-    }
-
     pub fn interpolate_from_coordinates(
         points: &[PrimeFieldElement<N>],
         values: &[PrimeFieldElement<N>],
@@ -113,6 +87,14 @@ impl<const N: u64> Polynomial<N> {
             }
         }
         Ok(Self::new(p_coefficients))
+    }
+
+    pub fn fft_interpolate(
+        units: &[PrimeFieldElement<N>],
+        values: &[PrimeFieldElement<N>],
+    ) -> Result<Self, anyhow::Error> {
+        let coefficients = fft::inverse_fft(values, units)?;
+        Ok(Self::new(coefficients))
     }
 
     pub fn degree(&self) -> usize {
@@ -238,53 +220,6 @@ impl<const N: u64> Polynomial<N> {
     pub fn fft_evaluate(&self, units: &[PrimeFieldElement<N>]) -> Vec<PrimeFieldElement<N>> {
         fft::fft(&self.coefficients, units)
     }
-
-    pub fn evaluate_as_binomial(
-        &self,
-        x: &PrimeFieldElement<N>,
-        y: &PrimeFieldElement<N>,
-        exponent: u32,
-    ) -> PrimeFieldElement<N> {
-        let mut evaluation = self
-            .coefficients
-            .first()
-            .copied()
-            .unwrap_or(PrimeFieldElement::from(0));
-        let mut base = PrimeFieldElement::<N>::from(1);
-        let mut power_of_x_evaluated = PrimeFieldElement::<N>::from(1);
-        for (i, c) in self.coefficients.iter().skip(1).enumerate() {
-            if (i + 1) % (exponent as usize) == 0 {
-                base = base.mul(y);
-                power_of_x_evaluated = base;
-            } else {
-                power_of_x_evaluated = power_of_x_evaluated.mul(x);
-            }
-            evaluation = evaluation.add(&c.mul(&power_of_x_evaluated));
-        }
-        evaluation
-    }
-
-    pub fn partially_evaluate_as_binomial(
-        &self,
-        x: &PrimeFieldElement<N>,
-        exponent: usize,
-    ) -> Self {
-        let mut coefficients = Vec::with_capacity(self.degree() / exponent);
-
-        let mut x_powered = PrimeFieldElement::<N>::from(1);
-        for (i, c) in self.coefficients.iter().enumerate() {
-            if i % exponent == 0 {
-                coefficients.push(*c);
-                x_powered = PrimeFieldElement::<N>::from(1)
-            } else {
-                let index = i / exponent;
-                x_powered = x_powered.mul(x);
-                coefficients[index] = coefficients[index].add(&c.mul(&x_powered));
-            }
-        }
-
-        Self::new(coefficients)
-    }
 }
 
 impl<const N: u64> std::fmt::Display for Polynomial<N> {
@@ -374,35 +309,34 @@ mod polynomial_tests {
     }
 
     #[test]
-    fn test_interpolation_and_evaluation_from_coordinates() {
-        let number_of_points: u64 = rand::random_range(2..=100);
-        let points: Vec<PrimeFieldElement<1_000_000_007>> =
-            (0..number_of_points).map(PrimeFieldElement::from).collect();
-        let values: Vec<PrimeFieldElement<1_000_000_007>> = (0..number_of_points)
-            .map(|_| {
-                let y: u64 = rand::random();
-                PrimeFieldElement::from(y)
-            })
-            .collect();
-        let p = Polynomial1B7::interpolate_from_coordinates(&points, &values).unwrap();
-        for (x, y) in points.iter().zip(&values) {
-            assert_eq!(
-                Polynomial1B7::interpolate_and_evaluate_from_coordinates(&points, &values, x)
-                    .unwrap(),
-                *y
-            );
+    fn test_fft_interpolation_from_coordinates() {
+        const N: u64 = 337;
+        let g = PrimeFieldElement::<N>::from(85);
+        let mut units = vec![PrimeFieldElement::<N>::from(1)];
+        let mut power_of_g = g;
+        while power_of_g != 1.into() {
+            units.push(power_of_g);
+            power_of_g = power_of_g.mul(&g);
         }
-        let additional_points: Vec<PrimeFieldElement<1_000_000_007>> = (0..1_000)
-            .map(|_| {
-                let x: u64 = rand::random();
-                PrimeFieldElement::from(x)
-            })
-            .collect();
-        for x in &additional_points {
+
+        for coefficients in [
+            vec![3, 1, 4, 1, 5, 9, 2, 6],
+            vec![1, 0, 1, 0, 1, 0],
+            vec![1, 0, 1, 0, 1],
+            vec![1, 0, 0, 0],
+        ] {
+            let p = Polynomial::<N>::new(
+                coefficients
+                    .into_iter()
+                    .map(PrimeFieldElement::<N>::from)
+                    .collect(),
+            );
+            let evaluations = p.fft_evaluate(&units);
             assert_eq!(
-                p.evaluate(x),
-                Polynomial1B7::interpolate_and_evaluate_from_coordinates(&points, &values, x)
+                Polynomial::<N>::fft_interpolate(&units, &evaluations)
                     .unwrap()
+                    .coefficients,
+                p.coefficients
             );
         }
     }
@@ -478,6 +412,7 @@ mod polynomial_tests {
             vec![1, 0, 1, 0, 1, 0],
             vec![1, 0, 1, 0, 1],
             vec![1, 0, 0, 0],
+            vec![0, 0, 0, 1],
         ] {
             let p = Polynomial::<N>::new(
                 coefficients
@@ -490,40 +425,6 @@ mod polynomial_tests {
                 assert_eq!(evaluations[i], p.evaluate(u));
             }
         }
-    }
-
-    #[test]
-    fn test_evaluation_as_binomial() {
-        // P(x) = x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
-        // with y = x^3 -> G(x, y) = y^2 + yx^2 + yx + y + x^2 + x + 1
-        let p = Polynomial1B7::new([1, 1, 1, 1, 1, 1, 1].map(PrimeFieldElement::from).to_vec()); // x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
-        assert_eq!(p.evaluate_as_binomial(&1.into(), &2.into(), 3), 13.into()); // 4 + 2 + 2 + 2 + 1 + 1 + 1 
-        assert_eq!(p.evaluate_as_binomial(&3.into(), &2.into(), 3), 43.into()); // 4 + 18 + 6 + 2 + 9 + 3 + 1
-        assert_eq!(p.evaluate_as_binomial(&2.into(), &0.into(), 3), 7.into());
-        assert_eq!(p.evaluate_as_binomial(&1.into(), &1.into(), 3), 7.into());
-    }
-
-    #[test]
-    fn test_partial_evaluation_as_binomial() {
-        // P(x) = x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
-        // with y = x^3 -> G(x, y) = y^2 + yx^2 + yx + y + x^2 + x + 1
-        // with x = 1 => G(1, y) = y^2 + 3y + 3
-        // with x = 3 => G(3, y) = y^2 + (9 + 3 + 1)y + 9 + 3 + 1 = y^2 + 13y + 13
-        let p = Polynomial1B7::new([1, 1, 1, 1, 1, 1, 1].map(PrimeFieldElement::from).to_vec()); // x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
-        assert_eq!(
-            p.partially_evaluate_as_binomial(&1.into(), 3),
-            Polynomial1B7::new(vec![3.into(), 3.into(), 1.into()])
-        );
-        assert_eq!(
-            p.partially_evaluate_as_binomial(&3.into(), 3),
-            Polynomial1B7::new(vec![13.into(), 13.into(), 1.into()])
-        );
-
-        assert_eq!(
-            p.partially_evaluate_as_binomial(&3.into(), 2)
-                .evaluate(&1.into()),
-            p.evaluate_as_binomial(&3.into(), &1.into(), 2)
-        );
     }
 
     #[test]

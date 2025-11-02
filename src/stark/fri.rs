@@ -459,7 +459,7 @@ fn derive_indirect_steps_count(max_degree: u64) -> Result<u32, anyhow::Error> {
 fn scale_index(index: usize, reduction_level: usize) -> usize {
     let mut result = index;
     for _ in 0..reduction_level {
-        result = 4 * result;
+        result *= 4;
     }
     result
 }
