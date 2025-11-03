@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Instant};
 
 use anyhow::anyhow;
 
@@ -54,10 +54,15 @@ pub fn generate_stark_proof<const N: u64>(
     generator: PrimeFieldElement<N>,
     max_degree: u64,
 ) -> Result<StarkProof<N>, anyhow::Error> {
+    let now = Instant::now();
     let units = derive_units(generator);
+    println!("Finished deriving units in {} seconds", now.elapsed().as_secs());
 
+    let now = Instant::now();
     let p_evals = p.fft_evaluate(&units);
+    println!("Finished evaluations of P over the domain in {} seconds", now.elapsed().as_secs());
 
+    let now = Instant::now();
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut invalid_d_evaluations_indices = HashSet::new();
@@ -80,16 +85,24 @@ pub fn generate_stark_proof<const N: u64>(
         p_evaluations.push(Evaluation::new(p_evals[i]));
         d_evaluations.push(Evaluation::new(d_eval));
     }
+    println!("Finished evaluations of D over the domain in {} seconds", now.elapsed().as_secs());
 
+    let now = Instant::now();
     let p_commitments_tree = commit(&p_evaluations)?;
+    println!("Finished committing to P in {} seconds", now.elapsed().as_secs());
+    let now = Instant::now();
     let d_commitments_tree = commit(&d_evaluations)?;
+    println!("Finished committing to D in {} seconds", now.elapsed().as_secs());
 
     let spot_checks = select_spot_checks(&p_commitments_tree, &d_commitments_tree, &units)
         .map_err(|e| e.context("selection of spot checks"))?;
 
+    let now = Instant::now();
     let p_low_degree_proof =
         generates_low_degree_proof(p_evaluations, p_commitments_tree, &units, max_degree, None)
             .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
+    println!("Finished P low degree proof in {} seconds", now.elapsed().as_secs());
+    let now = Instant::now();
     let d_low_degree_proof = generates_low_degree_proof(
         d_evaluations,
         d_commitments_tree,
@@ -98,6 +111,7 @@ pub fn generate_stark_proof<const N: u64>(
         Some(invalid_d_evaluations_indices),
     )
     .map_err(|e| e.context("generation of low degree proof for d polynomial"))?;
+    println!("Finished D low degree proof in {} seconds", now.elapsed().as_secs());
 
     Ok(StarkProof {
         spot_checks,
