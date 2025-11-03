@@ -51,7 +51,7 @@ pub fn modulo_inv(a: u64, n: u64) -> Option<u64> {
     Some(modulo(t, n))
 }
 
-pub fn modulo_exp(a: u64, e: u32, n: u64) -> u64 {
+pub fn modulo_exp(a: u64, e: u64, n: u64) -> u64 {
     let mut result = 1;
     let mut base = a;
     let mut exponent = e;

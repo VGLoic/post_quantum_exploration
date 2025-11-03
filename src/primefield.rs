@@ -34,7 +34,7 @@ impl<const MODULUS: u64> PrimeFieldElement<MODULUS> {
         modulo_inv(self.0, MODULUS).map(Self)
     }
 
-    pub fn exp(&self, e: u32) -> Self {
+    pub fn exp(&self, e: u64) -> Self {
         Self(modulo_exp(self.0, e, MODULUS))
     }
 }
