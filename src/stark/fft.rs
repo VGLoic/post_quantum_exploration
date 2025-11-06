@@ -2,65 +2,105 @@ use anyhow::anyhow;
 
 use crate::primefield::PrimeFieldElement;
 
+#[allow(dead_code)]
 /// Performs the Fourier Transform over a whole set of units generated as successive power of a generator.
 ///
 /// The implementation uses the fast Fourier transform, therefore the units set must have a length as 2^k.
 ///
-/// The number of values must be less or equal to the length of the units set.
+/// The number of values must be equal to the length of the units set.
 ///
 /// # Arguments
-/// * `values` - Set of values on which the Fourier transform is applied
+/// * `values` - Set of values on which the Fourier transform is applied. The set must have the same length as the units,
 /// * `units` - Set of units, generated as successive power of a generator. The set must have a length of 2^k.
 ///
 /// Returns the Fourier transform of the values over the whole set.
-pub fn fft<const N: u64>(
+pub fn fft_recursive<const N: u64>(
     values: &[PrimeFieldElement<N>],
     units: &[PrimeFieldElement<N>],
 ) -> Vec<PrimeFieldElement<N>> {
-    if values.is_empty() {
-        return vec![0.into(); units.len()];
-    }
     if values.len() == 1 {
         return vec![values[0]; units.len()];
     }
 
-    let mut odd_values = vec![];
-    let mut even_values = vec![];
+    let mut odd_values = Vec::with_capacity(values.len() / 2);
+    let mut even_values = Vec::with_capacity(values.len() / 2);
 
     for (i, &v) in values.iter().enumerate() {
-        if i.is_multiple_of(2) {
+        if i & 1 == 0 {
             even_values.push(v);
         } else {
             odd_values.push(v);
         }
     }
-    let zero = PrimeFieldElement::<N>::from(0);
-    while let Some(v) = even_values.last()
-        && v == &zero
-    {
-        even_values.pop();
-    }
-    while let Some(v) = odd_values.last()
-        && v == &zero
-    {
-        odd_values.pop();
-    }
 
-    let reduced_units: Vec<PrimeFieldElement<N>> =
-        units.iter().step_by(2).map(|v| v.to_owned()).collect();
+    let reduced_units: Vec<PrimeFieldElement<N>> = units.iter().step_by(2).copied().collect();
     let even_values = fft(&even_values, &reduced_units);
     let odd_values = fft(&odd_values, &reduced_units);
 
-    let mut first_half_result = Vec::with_capacity(units.len() / 2);
-    let mut second_half_result = Vec::with_capacity(units.len() / 2);
-
-    for i in 0..(units.len() / 2) {
+    let zero = PrimeFieldElement::<N>::from(0);
+    let mut result = vec![zero; units.len()];
+    let reduced_units_len = units.len() / 2;
+    for i in 0..reduced_units_len {
         let odd_contribution = units[i].mul(&odd_values[i]);
-        first_half_result.push(even_values[i].add(&odd_contribution));
-        second_half_result.push(even_values[i].add(&odd_contribution.neg()));
+        result[i] = even_values[i].add(&odd_contribution);
+        result[i + reduced_units_len] = even_values[i].add(&odd_contribution.neg());
+    }
+    result
+}
+
+pub fn fft<const N: u64>(
+    values: &[PrimeFieldElement<N>],
+    units: &[PrimeFieldElement<N>],
+) -> Vec<PrimeFieldElement<N>> {
+    let reductions = values.len().trailing_zeros();
+    let mut result = reorganize_fourier_values(values, reductions);
+
+    for reduction_level in 0..reductions {
+        let batch_size = 1 << reduction_level; // 1, 2, 4, 8, ..
+        let units_step = 1 << (reductions - reduction_level - 1); // ..., 8, 4, 2, 1,
+        // At iteration 0, we take 1 element on 2, e.g. 0, 2, 4, 6, 8, 10, 12, 14, ...
+        // At iteration 1, we take 2 elements, skip 2, etc... e.g. 0, 1, 4, 5, 8, 9, 12, 13, ...
+        // At iteration 2, we take 0, 1, 2, 3, 8, 9, 10, 11, ...
+        let mut iteration_count = 0;
+        let mut i = 0;
+        while i < units.len() {
+            if iteration_count == batch_size {
+                iteration_count = 0;
+                i += batch_size;
+            } else {
+                let conjugated_index = i + batch_size;
+                let unit = &units[units_step * (i % batch_size)];
+                let odd_contribution = unit.mul(&result[conjugated_index]);
+                (result[i], result[conjugated_index]) = (
+                    result[i].add(&odd_contribution),
+                    result[i].add(&odd_contribution.neg()),
+                );
+                iteration_count += 1;
+                i += 1;
+            }
+        }
     }
 
-    [first_half_result, second_half_result].concat()
+    result
+}
+
+fn reorganize_fourier_values<const N: u64>(
+    values: &[PrimeFieldElement<N>],
+    reductions: u32,
+) -> Vec<PrimeFieldElement<N>> {
+    let mut result = Vec::with_capacity(values.len());
+    let mut indices = Vec::with_capacity(values.len());
+    indices.push(0);
+    result.push(values[0]);
+    for reduction_level in 1..=reductions {
+        let lead_power_of_two = 1 << (reductions - reduction_level);
+        for j in 0..(1 << (reduction_level - 1)) {
+            let index = lead_power_of_two + indices[j];
+            indices.push(index);
+            result.push(values[index]);
+        }
+    }
+    result
 }
 
 #[allow(dead_code)]
@@ -98,7 +138,7 @@ pub fn inverse_fft<const N: u64>(
 mod tests {
     use crate::{
         primefield::PrimeFieldElement,
-        stark::fft::{fft, inverse_fft},
+        stark::fft::{fft, fft_recursive, inverse_fft},
     };
 
     #[test]
@@ -122,9 +162,11 @@ mod tests {
                 .iter()
                 .map(|v| PrimeFieldElement::<N>::from(*v))
                 .collect();
-            let ft = fft(&values, &units);
-
             values.resize(units.len(), 0.into());
+            let ft = fft(&values, &units);
+            let ft_recursive = fft_recursive(&values, &units);
+            assert_eq!(ft, ft_recursive);
+
             assert_eq!(inverse_fft(&ft, &units).unwrap(), values);
         }
     }

@@ -91,7 +91,7 @@ pub fn generates_low_degree_proof<const N: u64>(
     max_degree: u64,
     excluded_indices: Option<HashSet<usize>>,
 ) -> Result<LowDegreeProof<N>, anyhow::Error> {
-    let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
+    let indirect_steps_count = derive_fri_reductions_count(max_degree)?;
 
     let mut diag_evaluations = original_values;
     let mut diagonal_commitments_tree = original_commitments_tree;
@@ -259,7 +259,7 @@ pub fn verify_low_degree_proof<const N: u64>(
     max_degree: u64,
     excluded_indices: Option<HashSet<usize>>,
 ) -> Result<(), anyhow::Error> {
-    let indirect_steps_count = derive_indirect_steps_count(max_degree)?;
+    let indirect_steps_count = derive_fri_reductions_count(max_degree)?;
 
     let mut diag_root = proof.original_commitments_root;
 
@@ -437,7 +437,7 @@ pub struct IndirectCommitment<const N: u64> {
     pub column_commitments: Vec<Commitment<N>>,
 }
 
-fn derive_indirect_steps_count(max_degree: u64) -> Result<u32, anyhow::Error> {
+pub fn derive_fri_reductions_count(max_degree: u64) -> Result<u32, anyhow::Error> {
     if max_degree == 0 {
         return Ok(0);
     }

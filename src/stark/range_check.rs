@@ -56,11 +56,37 @@ pub fn generate_stark_proof<const N: u64>(
 ) -> Result<StarkProof<N>, anyhow::Error> {
     let now = Instant::now();
     let units = derive_units(generator);
-    println!("Finished deriving units in {} seconds", now.elapsed().as_secs());
+    println!(
+        "Finished deriving units in {} seconds",
+        now.elapsed().as_secs()
+    );
 
     let now = Instant::now();
     let p_evals = p.fft_evaluate(&units);
-    println!("Finished evaluations of P over the domain in {} seconds", now.elapsed().as_secs());
+    println!(
+        "Finished evaluations of P over the domain in {} seconds",
+        now.elapsed().as_secs()
+    );
+
+    let now = Instant::now();
+    let z_poly = Polynomial::<N>::interpolate_from_roots(
+        (1..=max_degree)
+            .map(PrimeFieldElement::<N>::from)
+            .collect::<Vec<PrimeFieldElement<N>>>()
+            .as_slice(),
+    );
+    println!(
+        "Finished interpolation of Z polynomial in {} seconds",
+        now.elapsed().as_secs()
+    );
+
+    let now = Instant::now();
+    let z_evals = z_poly.fft_evaluate(&units);
+
+    println!(
+        "Finished evaluations of Z over the domain in {} seconds",
+        now.elapsed().as_secs()
+    );
 
     let now = Instant::now();
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
@@ -74,9 +100,8 @@ pub fn generate_stark_proof<const N: u64>(
             // This value will not be checked so we can put any value we want here
             0.into()
         } else {
-            let z_eval = Polynomial::interpolate_and_evaluate_zpoly(1..=max_degree, unit);
             cp_eval.mul(
-                &z_eval
+                &z_evals[i]
                     .inv()
                     .ok_or(anyhow!("unable to find inverse of Z evaluation"))?,
             )
@@ -85,14 +110,23 @@ pub fn generate_stark_proof<const N: u64>(
         p_evaluations.push(Evaluation::new(p_evals[i]));
         d_evaluations.push(Evaluation::new(d_eval));
     }
-    println!("Finished evaluations of D over the domain in {} seconds", now.elapsed().as_secs());
+    println!(
+        "Finished evaluations of D over the domain in {} seconds",
+        now.elapsed().as_secs()
+    );
 
     let now = Instant::now();
     let p_commitments_tree = commit(&p_evaluations)?;
-    println!("Finished committing to P in {} seconds", now.elapsed().as_secs());
+    println!(
+        "Finished committing to P in {} seconds",
+        now.elapsed().as_secs()
+    );
     let now = Instant::now();
     let d_commitments_tree = commit(&d_evaluations)?;
-    println!("Finished committing to D in {} seconds", now.elapsed().as_secs());
+    println!(
+        "Finished committing to D in {} seconds",
+        now.elapsed().as_secs()
+    );
 
     let spot_checks = select_spot_checks(&p_commitments_tree, &d_commitments_tree, &units)
         .map_err(|e| e.context("selection of spot checks"))?;
@@ -101,7 +135,10 @@ pub fn generate_stark_proof<const N: u64>(
     let p_low_degree_proof =
         generates_low_degree_proof(p_evaluations, p_commitments_tree, &units, max_degree, None)
             .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
-    println!("Finished P low degree proof in {} seconds", now.elapsed().as_secs());
+    println!(
+        "Finished P low degree proof in {} seconds",
+        now.elapsed().as_secs()
+    );
     let now = Instant::now();
     let d_low_degree_proof = generates_low_degree_proof(
         d_evaluations,
@@ -111,7 +148,10 @@ pub fn generate_stark_proof<const N: u64>(
         Some(invalid_d_evaluations_indices),
     )
     .map_err(|e| e.context("generation of low degree proof for d polynomial"))?;
-    println!("Finished D low degree proof in {} seconds", now.elapsed().as_secs());
+    println!(
+        "Finished D low degree proof in {} seconds",
+        now.elapsed().as_secs()
+    );
 
     Ok(StarkProof {
         spot_checks,
@@ -286,7 +326,7 @@ pub struct SpotCheck<const N: u64> {
     pub d_proof: MerkleProof,
 }
 
-fn derive_units<const N: u64>(generator: PrimeFieldElement<N>) -> Vec<PrimeFieldElement<N>> {
+pub fn derive_units<const N: u64>(generator: PrimeFieldElement<N>) -> Vec<PrimeFieldElement<N>> {
     let one = PrimeFieldElement::<N>::from(1);
     if generator == one {
         return vec![one];
@@ -314,8 +354,8 @@ mod test {
 
     #[test]
     fn test_power_of_4() {
-        let root = PrimeFieldElement::<N>::from(GENERATOR);
-        let units = derive_units(root);
+        let generator = PrimeFieldElement::<N>::from(GENERATOR);
+        let units = derive_units(generator);
         for (i, unit) in units.iter().enumerate() {
             let expected_value = unit.exp(4);
             assert_eq!(

@@ -218,7 +218,9 @@ impl<const N: u64> Polynomial<N> {
     ///
     /// Returns the evaluation of the polynomial over the whole set.
     pub fn fft_evaluate(&self, units: &[PrimeFieldElement<N>]) -> Vec<PrimeFieldElement<N>> {
-        fft::fft(&self.coefficients, units)
+        let mut padded_coefficients = self.coefficients.clone();
+        padded_coefficients.resize(units.len(), PrimeFieldElement::from(0));
+        fft::fft(&padded_coefficients, units)
     }
 }
 
