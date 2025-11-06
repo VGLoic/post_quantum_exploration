@@ -85,7 +85,7 @@ where
     }
 
     pub fn get<'a>(&'a self, selector: &[bool]) -> Result<ValueWithProof<'a, T>, anyhow::Error> {
-        if selector.len() != self.depth.into() {
+        if selector.len() != Into::<usize>::into(self.depth) {
             return Err(anyhow!(
                 "invalid selector, expected of length: {}, got length {}",
                 self.depth,
