@@ -86,23 +86,25 @@ const ROW_COUNT: usize = 40;
 /// - the root hash of the original commitments.
 pub fn generates_low_degree_proof<const N: u64>(
     original_values: Vec<Evaluation<N>>,
-    original_commitments_tree: MerkleTreeV2<Evaluation<N>>,
     units: &[PrimeFieldElement<N>],
     max_degree: u64,
     excluded_indices: Option<HashSet<usize>>,
-) -> Result<LowDegreeProof<N>, anyhow::Error> {
+) -> Result<(MerkleTreeV2<Evaluation<N>>, LowDegreeProof<N>), anyhow::Error> {
     let indirect_steps_count = derive_fri_reductions_count(max_degree)?;
 
-    let mut diag_evaluations = original_values;
-    let mut diagonal_commitments_tree = original_commitments_tree;
-    let mut row_dimension = units.len();
+    let original_commitments_tree = commit(&original_values)?;
 
-    let original_commitments_root = *diagonal_commitments_tree.root_hash();
+    let mut diag_evaluations = original_values;
+    let mut previous_column_commitments_tree = None;
+    let mut row_dimension = units.len();
 
     let mut row_excluded_indices = excluded_indices.unwrap_or_default();
 
     let mut indirect_commitments: Vec<IndirectCommitment<N>> = vec![];
     for reduction_level in 0..(indirect_steps_count as usize) {
+        let diagonal_commitments_tree = previous_column_commitments_tree
+            .as_ref()
+            .unwrap_or(&original_commitments_tree);
         let x_c_index =
             pseudo_random_select_unit_index(diagonal_commitments_tree.root_hash(), row_dimension);
 
@@ -169,27 +171,33 @@ pub fn generates_low_degree_proof<const N: u64>(
         });
 
         row_dimension /= 4;
-        diagonal_commitments_tree = column_commitments_tree;
+        previous_column_commitments_tree = Some(column_commitments_tree);
         diag_evaluations = column_evaluations;
         row_excluded_indices = column_excluded_indices;
     }
-
+    let final_diagonal_commitments_tree = previous_column_commitments_tree
+        .as_ref()
+        .unwrap_or(&original_commitments_tree);
     let final_indices = pseudo_random_select_units_indices(
-        diagonal_commitments_tree.root_hash(),
+        final_diagonal_commitments_tree.root_hash(),
         DIRECT_COMMITMENTS_COUNT,
         row_dimension,
         &row_excluded_indices,
     )?;
     let direct_commitments = final_indices
         .into_iter()
-        .map(|unit_index| diagonal_commitments_tree.select_commitment(unit_index))
+        .map(|unit_index| final_diagonal_commitments_tree.select_commitment(unit_index))
         .collect::<Result<Vec<Commitment<N>>, anyhow::Error>>()?;
 
-    Ok(LowDegreeProof {
-        original_commitments_root,
-        indirect_commitments,
-        direct_commitments,
-    })
+    let original_commitments_root = *original_commitments_tree.root_hash();
+    Ok((
+        original_commitments_tree,
+        LowDegreeProof {
+            original_commitments_root,
+            indirect_commitments,
+            direct_commitments,
+        },
+    ))
 }
 
 /// Verifies a low degree proof
