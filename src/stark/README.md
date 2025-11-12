@@ -28,6 +28,16 @@ cargo build --profile profiling
 samply record ./target/profiling/range_check
 ```
 
+## Benchmarking
+
+Benchmarking is done using the [Criterion](https://bheisler.github.io/criterion.rs/book/index.html) crate. Benchmarks are located in the `benches` folder.
+To run the benchmarks, use:
+```bash
+cargo bench
+```
+
+For now, only the Goldilocks finite field implementation is benchmarked. Low subgroup sizes are used to keep the benchmark time reasonable.
+
 ## Improvements to add
 
 ### Batch inversion
