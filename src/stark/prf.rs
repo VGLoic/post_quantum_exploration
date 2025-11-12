@@ -73,7 +73,7 @@ mod prf_tests {
         assert!(indices.len() == target_length);
 
         let selected_indices: HashSet<_, BuildHasherDefault<DefaultHasher>> =
-            HashSet::from_iter(indices.into_iter());
+            HashSet::from_iter(indices.iter());
         assert!(selected_indices.len() == target_length);
     }
 }

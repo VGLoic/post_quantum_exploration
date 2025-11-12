@@ -1,20 +1,20 @@
 use crate::modular_arithmetic::*;
 
 #[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
-pub struct PrimeFieldElement<const MODULUS: u32>(u32);
+pub struct PrimeFieldElement<const MODULUS: u64>(u64);
 
-impl<const MODULUS: u32> From<u32> for PrimeFieldElement<MODULUS> {
-    fn from(value: u32) -> Self {
+impl<const MODULUS: u64> From<u64> for PrimeFieldElement<MODULUS> {
+    fn from(value: u64) -> Self {
         PrimeFieldElement::new(value)
     }
 }
 
-impl<const MODULUS: u32> PrimeFieldElement<MODULUS> {
-    pub fn new(value: u32) -> Self {
+impl<const MODULUS: u64> PrimeFieldElement<MODULUS> {
+    pub fn new(value: u64) -> Self {
         Self(modulo(value.into(), MODULUS))
     }
 
-    pub fn inner(&self) -> u32 {
+    pub fn inner(&self) -> u64 {
         self.0
     }
 
@@ -34,12 +34,12 @@ impl<const MODULUS: u32> PrimeFieldElement<MODULUS> {
         modulo_inv(self.0, MODULUS).map(Self)
     }
 
-    pub fn exp(&self, e: u32) -> Self {
+    pub fn exp(&self, e: u64) -> Self {
         Self(modulo_exp(self.0, e, MODULUS))
     }
 }
 
-impl<const MODULUS: u32> std::fmt::Display for PrimeFieldElement<MODULUS> {
+impl<const MODULUS: u64> std::fmt::Display for PrimeFieldElement<MODULUS> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }

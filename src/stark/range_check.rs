@@ -6,7 +6,7 @@ use crate::{
     merkletree_v2::{MerkleProof, MerkleTreeV2, verify_proof},
     primefield::PrimeFieldElement,
     stark::{
-        commitment::{Evaluation, commit},
+        commitment::Evaluation,
         fri::{LowDegreeProof, generates_low_degree_proof, verify_low_degree_proof},
         polynomial::Polynomial,
         prf::pseudo_random_select_units_indices,
@@ -49,55 +49,60 @@ const SPOT_CHECKS_COUNT: usize = 40;
 /// * `p` - the polynomial for which the proof is generated,
 /// * `generator` - the generator of the prime field,
 /// * `max_degree` - the maximum degree for the input polynomial
-pub fn generate_stark_proof<const N: u32>(
+pub fn generate_stark_proof<const N: u64>(
     p: Polynomial<N>,
     generator: PrimeFieldElement<N>,
-    max_degree: u32,
+    max_degree: u64,
 ) -> Result<StarkProof<N>, anyhow::Error> {
     let units = derive_units(generator);
 
+    let p_evals = p.fft_evaluate(&units);
+
+    let z_poly = Polynomial::<N>::interpolate_from_roots(
+        (1..=max_degree)
+            .map(PrimeFieldElement::<N>::from)
+            .collect::<Vec<PrimeFieldElement<N>>>()
+            .as_slice(),
+    );
+
+    let z_evals = z_poly.fft_evaluate(&units);
+
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
-
     let mut invalid_d_evaluations_indices = HashSet::new();
 
     for (i, unit) in units.iter().enumerate() {
-        let p_eval = p.evaluate(unit);
-        let cp_eval = Polynomial::interpolate_and_evaluate_zpoly(0..10, &p_eval);
+        let cp_eval = Polynomial::interpolate_and_evaluate_zpoly(0..10, &p_evals[i]);
         let d_eval = if unit.inner() <= max_degree {
             invalid_d_evaluations_indices.insert(i);
             // This value will not be checked so we can put any value we want here
             0.into()
         } else {
-            let z_eval = Polynomial::interpolate_and_evaluate_zpoly(1..=max_degree, unit);
             cp_eval.mul(
-                &z_eval
+                &z_evals[i]
                     .inv()
                     .ok_or(anyhow!("unable to find inverse of Z evaluation"))?,
             )
         };
 
-        p_evaluations.push(Evaluation::new(p_eval));
+        p_evaluations.push(Evaluation::new(p_evals[i]));
         d_evaluations.push(Evaluation::new(d_eval));
     }
 
-    let p_commitments_tree = commit(&p_evaluations)?;
-    let d_commitments_tree = commit(&d_evaluations)?;
-
-    let spot_checks = select_spot_checks(&p_commitments_tree, &d_commitments_tree, &units)
-        .map_err(|e| e.context("selection of spot checks"))?;
-
-    let p_low_degree_proof =
-        generates_low_degree_proof(p_evaluations, p_commitments_tree, &units, max_degree, None)
+    let (p_commitments_tree, p_low_degree_proof) =
+        generates_low_degree_proof(p_evaluations, &units, max_degree, None)
             .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
-    let d_low_degree_proof = generates_low_degree_proof(
+
+    let (d_commitments_tree, d_low_degree_proof) = generates_low_degree_proof(
         d_evaluations,
-        d_commitments_tree,
         &units,
         9 * max_degree,
         Some(invalid_d_evaluations_indices),
     )
     .map_err(|e| e.context("generation of low degree proof for d polynomial"))?;
+
+    let spot_checks = select_spot_checks(&p_commitments_tree, &d_commitments_tree, &units)
+        .map_err(|e| e.context("selection of spot checks"))?;
 
     Ok(StarkProof {
         spot_checks,
@@ -106,7 +111,7 @@ pub fn generate_stark_proof<const N: u32>(
     })
 }
 
-fn select_spot_checks<const N: u32>(
+fn select_spot_checks<const N: u64>(
     p_commitments_tree: &MerkleTreeV2<Evaluation<N>>,
     d_commitments_tree: &MerkleTreeV2<Evaluation<N>>,
     units: &[PrimeFieldElement<N>],
@@ -160,10 +165,10 @@ fn select_spot_checks<const N: u32>(
 /// * `stark_proof` - the stark proof to verify,
 /// * `generator` - the generator of the prime field,
 /// * `max_degree` - the maximum degree for the problem polynomial.
-pub fn verify_stark_proof<const N: u32>(
+pub fn verify_stark_proof<const N: u64>(
     stark_proof: StarkProof<N>,
     generator: PrimeFieldElement<N>,
-    max_degree: u32,
+    max_degree: u64,
 ) -> Result<(), anyhow::Error> {
     let units = derive_units(generator);
     let mut invalid_d_evaluations_indices = HashSet::new();
@@ -196,11 +201,11 @@ pub fn verify_stark_proof<const N: u32>(
     Ok(())
 }
 
-fn verify_spot_checks<const N: u32>(
+fn verify_spot_checks<const N: u64>(
     original_p_commitments_root: &[u8; 32],
     original_d_commitments_root: &[u8; 32],
     spot_checks: &[SpotCheck<N>],
-    max_degree: u32,
+    max_degree: u64,
     units: &[PrimeFieldElement<N>],
 ) -> Result<(), anyhow::Error> {
     let expected_spot_check_indices = pseudo_random_select_units_indices(
@@ -258,13 +263,15 @@ fn verify_spot_checks<const N: u32>(
     Ok(())
 }
 
-pub struct StarkProof<const N: u32> {
+#[derive(Clone)]
+pub struct StarkProof<const N: u64> {
     pub spot_checks: Vec<SpotCheck<N>>,
     pub p_low_degree_proof: LowDegreeProof<N>,
     pub d_low_degree_proof: LowDegreeProof<N>,
 }
 
-pub struct SpotCheck<const N: u32> {
+#[derive(Clone)]
+pub struct SpotCheck<const N: u64> {
     pub unit_index: usize,
     pub p_evaluation: Evaluation<N>,
     pub p_proof: MerkleProof,
@@ -272,11 +279,15 @@ pub struct SpotCheck<const N: u32> {
     pub d_proof: MerkleProof,
 }
 
-fn derive_units<const N: u32>(generator: PrimeFieldElement<N>) -> Vec<PrimeFieldElement<N>> {
-    let mut units = vec![generator];
+pub fn derive_units<const N: u64>(generator: PrimeFieldElement<N>) -> Vec<PrimeFieldElement<N>> {
+    let one = PrimeFieldElement::<N>::from(1);
+    if generator == one {
+        return vec![one];
+    }
+    let mut units = vec![one, generator];
 
     let mut power = generator.mul(&generator);
-    while power != generator {
+    while power != one {
         units.push(power);
         power = power.mul(&generator);
     }
@@ -290,14 +301,14 @@ mod test {
     use super::*;
     use crate::stark::polynomial::Polynomial;
 
-    const N: u32 = 40_961; // Chosen because: (p - 1) is divisible 6 times by 4 
-    const GENERATOR: u32 = 3;
-    const P_MAX_DEGREE: u32 = 256; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
+    const N: u64 = 65_537; // One of the prime Fermat number, i.e. 2^(2^k) + 1
+    const GENERATOR: u64 = 3;
+    const P_MAX_DEGREE: u64 = 256; // 0 <= P(x) <= 9 for 1 <= x <= P_MAX_DEGREE
 
     #[test]
     fn test_power_of_4() {
-        let root = PrimeFieldElement::<N>::from(GENERATOR);
-        let units = derive_units(root);
+        let generator = PrimeFieldElement::<N>::from(GENERATOR);
+        let units = derive_units(generator);
         for (i, unit) in units.iter().enumerate() {
             let expected_value = unit.exp(4);
             assert_eq!(
@@ -326,12 +337,12 @@ mod test {
 
         assert!(reduction_counter > 4);
 
-        let mut root = PrimeFieldElement::<N>::from(GENERATOR);
-        let mut old_len = derive_units(root).len();
+        let mut generator = PrimeFieldElement::<N>::from(GENERATOR);
+        let mut old_len = derive_units(generator).len();
 
         for _ in 0..reduction_counter {
-            root = root.exp(4);
-            let new_len = derive_units(root).len();
+            generator = generator.exp(4);
+            let new_len = derive_units(generator).len();
             assert_eq!(new_len, old_len / 4);
             old_len = new_len;
         }

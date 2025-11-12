@@ -28,9 +28,43 @@ cargo build --profile profiling
 samply record ./target/profiling/range_check
 ```
 
-## Improvements to add:
-- use fast Fourier transform instead of Lagrange interpolation,
-- use [Montgomery batch inversions](https://books.google.fr/books?id=kGu4lTznRdgC&pg=PA54&lpg=PA54&dq=montgomery+batch+inversion&source=bl&ots=tPJcPPOrCe&sig=Z3p_6YYwYloRU-f1K-nnv2D8lGw&hl=en&sa=X&redir_esc=y#v=onepage&q=montgomery%20batch%20inversion&f=false),
-- support modular arithmetic for larger prime fields,
-- add measurements on concrete cases,
-- add another computation than range check.
+## Benchmarking
+
+Benchmarking is done using the [Criterion](https://bheisler.github.io/criterion.rs/book/index.html) crate. Benchmarks are located in the `benches` folder.
+To run the benchmarks, use:
+```bash
+cargo bench
+```
+
+For now, only the Goldilocks finite field implementation is benchmarked. Low subgroup sizes are used to keep the benchmark time reasonable.
+
+## Improvements to add
+
+### Batch inversion
+The current implementation uses the naive approach for computing inverses in a finite field, which is quite costly. We can improve it by using batch inversion. The [Montgomery batch inversion method](https://books.google.fr/books?id=kGu4lTznRdgC&pg=PA54&lpg=PA54&dq=montgomery+batch+inversion&source=bl&ots=tPJcPPOrCe&sig=Z3p_6YYwYloRU-f1K-nnv2D8lGw&hl=en&sa=X&redir_esc=y#v=onepage&q=montgomery%20batch%20inversion&f=false) is a good candidate for this.
+
+### Improve arithmetic operations
+
+Currently, arithmetic operations in the finite field are implemented in a naive way. In particular, reduction modulo a prime is done in every operation, addition or multiplication. There are definitely room for improvement on the various computations, especially the ones involving multiple additions and multiplications.
+
+### Use Goldilocks arithmetic
+
+The Goldilocks prime (2^64 - 2^32 + 1) allows for very efficient arithmetic operations using 64-bit integers. Implementing arithmetic operations using the Goldilocks prime can significantly speed up computations in the finite field.
+
+### Use parallelism
+
+Many parts of the implementation can benefit from parallelism. For instance, fast fourier transforms and Merkle tree computations can be parallelized to take advantage of multi-core processors. It would significantly speed up the proof generation and verification processes.
+
+### Add measurements with various metrics
+
+There are no measurements yet on the implementation. It would be interesting to add measurements on various metrics such as:
+- proof generation time,
+- proof verification time,
+- proof size,
+- memory usage,
+- CPU usage.
+
+
+### Add another computation than range check
+
+The current implementation only covers the range check problem. It would be interesting to implement other computations.
