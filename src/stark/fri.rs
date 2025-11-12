@@ -431,12 +431,14 @@ pub fn verify_low_degree_proof<const N: u64>(
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct LowDegreeProof<const N: u64> {
     pub original_commitments_root: [u8; 32],
     pub indirect_commitments: Vec<IndirectCommitment<N>>,
     pub direct_commitments: Vec<Commitment<N>>,
 }
 
+#[derive(Clone)]
 pub struct IndirectCommitment<const N: u64> {
     // Vec of diagonal commitments, each element contains 4 values over a 4-root in order to form a row
     pub diagonal_commitments: Vec<[Commitment<N>; 4]>,

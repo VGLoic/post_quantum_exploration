@@ -53,6 +53,7 @@ impl<const N: u64> MerkleTreeV2<Evaluation<N>> {
     }
 }
 
+#[derive(Clone)]
 pub struct Commitment<const N: u64> {
     pub unit_index: usize,
     pub evaluation: Evaluation<N>,

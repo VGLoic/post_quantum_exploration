@@ -1,4 +1,4 @@
-use std::{collections::HashSet, time::Instant};
+use std::collections::HashSet;
 
 use anyhow::anyhow;
 
@@ -56,28 +56,17 @@ pub fn generate_stark_proof<const N: u64>(
 ) -> Result<StarkProof<N>, anyhow::Error> {
     let units = derive_units(generator);
 
-    let now = Instant::now();
     let p_evals = p.fft_evaluate(&units);
-    println!(
-        "Finished evaluations of P over the domain in {} seconds",
-        now.elapsed().as_secs()
-    );
 
-    let now = Instant::now();
     let z_poly = Polynomial::<N>::interpolate_from_roots(
         (1..=max_degree)
             .map(PrimeFieldElement::<N>::from)
             .collect::<Vec<PrimeFieldElement<N>>>()
             .as_slice(),
     );
-    println!(
-        "Finished interpolation of Z polynomial in {} seconds",
-        now.elapsed().as_secs()
-    );
 
     let z_evals = z_poly.fft_evaluate(&units);
 
-    let now = Instant::now();
     let mut p_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut d_evaluations: Vec<Evaluation<N>> = Vec::with_capacity(units.len());
     let mut invalid_d_evaluations_indices = HashSet::new();
@@ -99,21 +88,11 @@ pub fn generate_stark_proof<const N: u64>(
         p_evaluations.push(Evaluation::new(p_evals[i]));
         d_evaluations.push(Evaluation::new(d_eval));
     }
-    println!(
-        "Finished evaluations of D over the domain in {} seconds",
-        now.elapsed().as_secs()
-    );
 
-    let now = Instant::now();
     let (p_commitments_tree, p_low_degree_proof) =
         generates_low_degree_proof(p_evaluations, &units, max_degree, None)
             .map_err(|e| e.context("generation of low degree proof for p polynomial"))?;
-    println!(
-        "Finished P low degree proof in {} seconds",
-        now.elapsed().as_secs()
-    );
 
-    let now = Instant::now();
     let (d_commitments_tree, d_low_degree_proof) = generates_low_degree_proof(
         d_evaluations,
         &units,
@@ -121,10 +100,6 @@ pub fn generate_stark_proof<const N: u64>(
         Some(invalid_d_evaluations_indices),
     )
     .map_err(|e| e.context("generation of low degree proof for d polynomial"))?;
-    println!(
-        "Finished D low degree proof in {} seconds",
-        now.elapsed().as_secs()
-    );
 
     let spot_checks = select_spot_checks(&p_commitments_tree, &d_commitments_tree, &units)
         .map_err(|e| e.context("selection of spot checks"))?;
@@ -288,12 +263,14 @@ fn verify_spot_checks<const N: u64>(
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct StarkProof<const N: u64> {
     pub spot_checks: Vec<SpotCheck<N>>,
     pub p_low_degree_proof: LowDegreeProof<N>,
     pub d_low_degree_proof: LowDegreeProof<N>,
 }
 
+#[derive(Clone)]
 pub struct SpotCheck<const N: u64> {
     pub unit_index: usize,
     pub p_evaluation: Evaluation<N>,
